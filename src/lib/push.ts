@@ -13,7 +13,9 @@ type StoredPushSubscription = WebPushSubscription & { user_agent?: string | null
 
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-const vapidSubject = process.env.VAPID_SUBJECT ?? "mailto:notifications@studio.local";
+const fallbackVapidSubject = "https://studio-tau-eight-46.vercel.app";
+const configuredVapidSubject = process.env.VAPID_SUBJECT?.trim();
+const vapidSubject = configuredVapidSubject?.startsWith("https://") ? configuredVapidSubject : fallbackVapidSubject;
 
 if (vapidPublicKey && vapidPrivateKey) {
   webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
@@ -66,6 +68,12 @@ export async function sendPushToUser(userId: string, payload: StudioPushPayload)
       sent += 1;
     } catch (error) {
       const statusCode = typeof error === "object" && error !== null && "statusCode" in error ? Number(error.statusCode) : undefined;
+      const reason = typeof error === "object" && error !== null && "body" in error
+        ? String(error.body).slice(0, 200)
+        : error instanceof Error
+          ? error.message
+          : "Unknown push provider error";
+      console.error("[push] delivery failed", { statusCode, reason });
       if (statusCode === 404 || statusCode === 410) {
         await db.query("DELETE FROM push_subscriptions WHERE endpoint = $1", [subscription.endpoint]);
         removed += 1;
