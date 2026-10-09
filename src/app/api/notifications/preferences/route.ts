@@ -8,14 +8,16 @@ type Preferences = {
   dueTodayEnabled: boolean;
   dueSoonEnabled: boolean;
   overdueEnabled: boolean;
+  dailyDigestEnabled: boolean;
 };
 
-function serialize(row: { push_enabled: boolean; due_today_enabled: boolean; due_soon_enabled: boolean; overdue_enabled: boolean }): Preferences {
+function serialize(row: { push_enabled: boolean; due_today_enabled: boolean; due_soon_enabled: boolean; overdue_enabled: boolean; daily_digest_enabled: boolean }): Preferences {
   return {
     pushEnabled: row.push_enabled,
     dueTodayEnabled: row.due_today_enabled,
     dueSoonEnabled: row.due_soon_enabled,
     overdueEnabled: row.overdue_enabled,
+    dailyDigestEnabled: row.daily_digest_enabled,
   };
 }
 
@@ -30,8 +32,8 @@ export async function GET() {
 
   try {
     await ensureUserWorkspace(session.user.id, session.user.name);
-    const result = await db.query("SELECT push_enabled, due_today_enabled, due_soon_enabled, overdue_enabled FROM notification_preferences WHERE user_id = $1", [session.user.id]);
-    return NextResponse.json({ preferences: result.rows[0] ? serialize(result.rows[0]) : { pushEnabled: true, dueTodayEnabled: true, dueSoonEnabled: true, overdueEnabled: true } });
+    const result = await db.query("SELECT push_enabled, due_today_enabled, due_soon_enabled, overdue_enabled, daily_digest_enabled FROM notification_preferences WHERE user_id = $1", [session.user.id]);
+    return NextResponse.json({ preferences: result.rows[0] ? serialize(result.rows[0]) : { pushEnabled: true, dueTodayEnabled: true, dueSoonEnabled: true, overdueEnabled: true, dailyDigestEnabled: false } });
   } catch {
     return NextResponse.json({ error: "Notification preferences could not be loaded." }, { status: 503 });
   }
@@ -51,10 +53,11 @@ export async function PATCH(request: Request) {
            due_today_enabled = COALESCE($3, due_today_enabled),
            due_soon_enabled = COALESCE($4, due_soon_enabled),
            overdue_enabled = COALESCE($5, overdue_enabled),
+           daily_digest_enabled = COALESCE($6, daily_digest_enabled),
            updated_at = now()
        WHERE user_id = $1
-       RETURNING push_enabled, due_today_enabled, due_soon_enabled, overdue_enabled`,
-      [session.user.id, typeof body?.pushEnabled === "boolean" ? body.pushEnabled : null, typeof body?.dueTodayEnabled === "boolean" ? body.dueTodayEnabled : null, typeof body?.dueSoonEnabled === "boolean" ? body.dueSoonEnabled : null, typeof body?.overdueEnabled === "boolean" ? body.overdueEnabled : null],
+       RETURNING push_enabled, due_today_enabled, due_soon_enabled, overdue_enabled, daily_digest_enabled`,
+      [session.user.id, typeof body?.pushEnabled === "boolean" ? body.pushEnabled : null, typeof body?.dueTodayEnabled === "boolean" ? body.dueTodayEnabled : null, typeof body?.dueSoonEnabled === "boolean" ? body.dueSoonEnabled : null, typeof body?.overdueEnabled === "boolean" ? body.overdueEnabled : null, typeof body?.dailyDigestEnabled === "boolean" ? body.dailyDigestEnabled : null],
     );
     return NextResponse.json({ preferences: serialize(result.rows[0]) });
   } catch {

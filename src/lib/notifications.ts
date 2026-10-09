@@ -12,6 +12,7 @@ type NotificationOrder = {
   due_today_enabled: boolean;
   due_soon_enabled: boolean;
   overdue_enabled: boolean;
+  daily_digest_enabled: boolean;
   reminder_time: string;
   timezone: string;
   snoozed_until: string | null;
@@ -48,6 +49,16 @@ function reminderCopy(kind: NonNullable<ReturnType<typeof reminderKind>>, order:
   return { title: "Upcoming order to prepare", body: `${order.product_name} for ${order.customer_name} is due soon.`, url };
 }
 
+function dailyDigestCopy(orderCount: number, today: string) {
+  return {
+    title: "Your Studio daily summary",
+    body: `${orderCount} order${orderCount === 1 ? "" : "s"} need${orderCount === 1 ? "s" : ""} your attention today.`,
+    url: "/orders",
+    tag: `daily_digest:${today}`,
+    kind: "daily_digest" as const,
+  };
+}
+
 export async function processDueNotifications(now = new Date()) {
   if (!db) return { processed: 0, sent: 0, failed: 0, skipped: 0 };
 
@@ -62,6 +73,7 @@ export async function processDueNotifications(now = new Date()) {
             COALESCE(np.due_today_enabled, true) AS due_today_enabled,
             COALESCE(np.due_soon_enabled, true) AS due_soon_enabled,
             COALESCE(np.overdue_enabled, true) AS overdue_enabled,
+            COALESCE(np.daily_digest_enabled, false) AS daily_digest_enabled,
             COALESCE(np.reminder_time, bs.reminder_time, '09:00')::text AS reminder_time,
             COALESCE(bs.timezone, 'Africa/Lagos') AS timezone,
             to_char(os.snoozed_until, 'YYYY-MM-DD') AS snoozed_until
@@ -77,6 +89,7 @@ export async function processDueNotifications(now = new Date()) {
   let sent = 0;
   let failed = 0;
   let skipped = 0;
+  const digestCandidates = new Map<string, { userId: string; today: string; orderId: string; count: number }>();
 
   for (const order of result.rows) {
     if (!order.push_enabled) {
@@ -101,6 +114,12 @@ export async function processDueNotifications(now = new Date()) {
       continue;
     }
 
+    if (order.daily_digest_enabled) {
+      const key = `${order.user_id}:${today}`;
+      const candidate = digestCandidates.get(key);
+      digestCandidates.set(key, candidate ? { ...candidate, count: candidate.count + 1 } : { userId: order.user_id, today, orderId: order.order_id, count: 1 });
+    }
+
     processed += 1;
     const dedupeKey = `${order.order_id}:${kind}:${today}`;
     const reminder = await db.query<{ id: string; status: string }>(
@@ -116,6 +135,31 @@ export async function processDueNotifications(now = new Date()) {
     }
 
     const delivery = await sendPushToUser(order.user_id, { ...reminderCopy(kind, order), kind, tag: dedupeKey });
+    if (delivery.sent > 0) {
+      await db.query("UPDATE reminders SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1", [reminder.rows[0].id]);
+      sent += delivery.sent;
+    } else if (delivery.failed > 0) {
+      failed += delivery.failed;
+    } else {
+      skipped += 1;
+    }
+  }
+
+  for (const candidate of digestCandidates.values()) {
+    const dedupeKey = `daily_digest:${candidate.userId}:${candidate.today}`;
+    const reminder = await db.query<{ id: string; status: string }>(
+      `INSERT INTO reminders (business_id, order_id, kind, scheduled_for, dedupe_key)
+       SELECT business_id, $1, 'daily_digest', now(), $2 FROM orders WHERE id = $1
+       ON CONFLICT (dedupe_key) DO UPDATE SET updated_at = now()
+       RETURNING id, status`,
+      [candidate.orderId, dedupeKey],
+    );
+    if (reminder.rows[0]?.status === "sent") {
+      skipped += 1;
+      continue;
+    }
+
+    const delivery = await sendPushToUser(candidate.userId, dailyDigestCopy(candidate.count, candidate.today));
     if (delivery.sent > 0) {
       await db.query("UPDATE reminders SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1", [reminder.rows[0].id]);
       sent += delivery.sent;
