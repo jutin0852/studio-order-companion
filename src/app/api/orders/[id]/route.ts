@@ -5,6 +5,7 @@ import { db, ensureUserWorkspace } from "@/lib/db";
 import { sendPushToUser } from "@/lib/push";
 
 const statuses = new Set(["not_started", "in_progress", "ready", "delivered"]);
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type OrderRow = {
   id: string;
@@ -59,6 +60,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   try {
     const businessId = await ensureUserWorkspace(session.user.id, session.user.name);
     const orderId = (await params).id;
+    if (!uuidPattern.test(orderId)) return NextResponse.json({ error: "Order not found." }, { status: 404 });
+    const existingOrder = await db.query<{ status: string }>(
+      "SELECT status FROM orders WHERE id = $1::uuid AND business_id = $2",
+      [orderId, businessId],
+    );
+    if (!existingOrder.rowCount) return NextResponse.json({ error: "Order not found." }, { status: 404 });
+    const previousStatus = existingOrder.rows[0].status;
     const values: unknown[] = [];
     const updates: string[] = [];
     const addUpdate = (column: string, value: unknown) => { values.push(value); updates.push(`${column} = $${values.length}`); };
@@ -92,15 +100,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     );
     if (!result.rowCount) return NextResponse.json({ error: "Order not found." }, { status: 404 });
     const updatedOrder = result.rows[0];
-    if (body.status && (updatedOrder.status === "ready" || updatedOrder.status === "delivered")) {
+    if (body.status && body.status !== previousStatus && (updatedOrder.status === "ready" || updatedOrder.status === "delivered")) {
       try {
-        await sendPushToUser(session.user.id, {
-          title: updatedOrder.status === "ready" ? "Order ready to send" : "Order complete",
-          body: updatedOrder.status === "ready" ? `${updatedOrder.product_name} for ${updatedOrder.customer_name} is ready for the next step.` : `${updatedOrder.product_name} for ${updatedOrder.customer_name} is marked delivered.`,
-          url: `/orders?order=${updatedOrder.id}`,
-          tag: `order-status-${updatedOrder.id}-${updatedOrder.status}`,
-          kind: "order_status",
-        });
+        const preference = await db.query<{ push_enabled: boolean }>(
+          "SELECT push_enabled FROM notification_preferences WHERE user_id = $1",
+          [session.user.id],
+        );
+        if (preference.rows[0]?.push_enabled !== false) {
+          await sendPushToUser(session.user.id, {
+            title: updatedOrder.status === "ready" ? "Order ready to send" : "Order complete",
+            body: updatedOrder.status === "ready" ? `${updatedOrder.product_name} for ${updatedOrder.customer_name} is ready for the next step.` : `${updatedOrder.product_name} for ${updatedOrder.customer_name} is marked delivered.`,
+            url: `/orders?order=${updatedOrder.id}`,
+            tag: `order-status-${updatedOrder.id}-${updatedOrder.status}`,
+            kind: "order_status",
+          });
+        }
       } catch {
         // A notification delivery problem must not undo a successfully saved order update.
       }
@@ -119,6 +133,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   try {
     const businessId = await ensureUserWorkspace(session.user.id, session.user.name);
     const orderId = (await params).id;
+    if (!uuidPattern.test(orderId)) return NextResponse.json({ error: "Order not found." }, { status: 404 });
     const result = await db.query("DELETE FROM orders WHERE id = $1::uuid AND business_id = $2 RETURNING id", [orderId, businessId]);
     if (!result.rowCount) return NextResponse.json({ error: "Order not found." }, { status: 404 });
     return NextResponse.json({ deleted: true, id: orderId });

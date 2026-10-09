@@ -104,6 +104,7 @@ export function PushNotificationSettings() {
       const response = await fetch("/api/notifications/subscription", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: subscription.endpoint }) });
       if (!response.ok) throw new Error("The notification device could not be removed.");
       setSubscription(null);
+      await updatePreference("pushEnabled", false);
       setMessage("Notifications are off on this device.");
     } catch (disableError) {
       setError(disableError instanceof Error ? disableError.message : "Notifications could not be disabled.");
