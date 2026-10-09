@@ -16,7 +16,23 @@ function requireDatabase() {
 }
 
 export async function ensureUserWorkspace(userId: string, userName?: string | null) {
-  const client = await requireDatabase().connect();
+  const pool = requireDatabase();
+
+  // Most requests arrive after the workspace has already been created. Keep
+  // that hot path read-only so every API request does not open a transaction
+  // and repeat the settings/preferences upserts.
+  const existing = await pool.query<{ id: string }>(
+    `SELECT b.id
+     FROM businesses b
+     JOIN business_settings bs ON bs.business_id = b.id
+     JOIN notification_preferences np ON np.user_id = b.owner_user_id
+     WHERE b.owner_user_id = $1
+     LIMIT 1`,
+    [userId],
+  );
+  if (existing.rows[0]?.id) return existing.rows[0].id;
+
+  const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const business = await client.query<{ id: string }>(

@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import { betterAuth } from "better-auth";
-import { Pool } from "pg";
 import { sendAuthEmail } from "@/lib/auth-email";
 import { db, ensureUserWorkspace } from "@/lib/db";
 
@@ -24,7 +23,6 @@ const dynamicBaseUrl = {
   fallback: appUrl,
   protocol: "auto" as const,
 };
-const databaseUrl = process.env.DATABASE_URL;
 const configuredAuthSecret = process.env.BETTER_AUTH_SECRET;
 const authSecret = configuredAuthSecret ?? randomBytes(32).toString("hex");
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
@@ -33,22 +31,16 @@ const googleConfig = googleClientId && googleClientSecret
   ? { clientId: googleClientId, clientSecret: googleClientSecret }
   : undefined;
 
-const database = databaseUrl
-  ? new Pool({
-      connectionString: databaseUrl,
-      max: 5,
-      ssl: databaseUrl.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
-    })
-  : undefined;
-
-export const isAuthConfigured = Boolean(databaseUrl && configuredAuthSecret);
+export const isAuthConfigured = Boolean(db && configuredAuthSecret);
 export const isGoogleAuthConfigured = Boolean(googleConfig);
 
 export const auth = betterAuth({
   appName: "Studio",
   baseURL: dynamicBaseUrl,
   secret: authSecret ?? "studio-auth-not-configured",
-  database,
+  // Share the application pool with Better Auth so session lookup and app
+  // persistence do not create separate Neon connection pools.
+  database: db ?? undefined,
   trustedOrigins: [appUrl, ...allowedHosts.map((host) => `http://${host}`)],
   databaseHooks: {
     user: {

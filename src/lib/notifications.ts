@@ -14,6 +14,7 @@ type NotificationOrder = {
   overdue_enabled: boolean;
   reminder_time: string;
   timezone: string;
+  snoozed_until: string | null;
 };
 
 function localDateKey(now: Date, timeZone: string) {
@@ -41,9 +42,10 @@ function reminderKind(order: NotificationOrder, today: string) {
 }
 
 function reminderCopy(kind: NonNullable<ReturnType<typeof reminderKind>>, order: NotificationOrder) {
-  if (kind === "overdue") return { title: "Overdue order needs action", body: `${order.product_name} for ${order.customer_name} is overdue. Open Studio and move it forward.`, url: "/orders" };
-  if (kind === "due_today") return { title: "Due today: take the next step", body: `Finish ${order.product_name} for ${order.customer_name} today.`, url: "/orders" };
-  return { title: "Upcoming order to prepare", body: `${order.product_name} for ${order.customer_name} is due soon.`, url: "/orders" };
+  const url = `/orders?order=${encodeURIComponent(order.order_id)}`;
+  if (kind === "overdue") return { title: "Overdue order needs action", body: `${order.product_name} for ${order.customer_name} is overdue. Open Studio and move it forward.`, url };
+  if (kind === "due_today") return { title: "Due today: take the next step", body: `Finish ${order.product_name} for ${order.customer_name} today.`, url };
+  return { title: "Upcoming order to prepare", body: `${order.product_name} for ${order.customer_name} is due soon.`, url };
 }
 
 export async function processDueNotifications(now = new Date()) {
@@ -61,11 +63,13 @@ export async function processDueNotifications(now = new Date()) {
             COALESCE(np.due_soon_enabled, true) AS due_soon_enabled,
             COALESCE(np.overdue_enabled, true) AS overdue_enabled,
             COALESCE(np.reminder_time, bs.reminder_time, '09:00')::text AS reminder_time,
-            COALESCE(bs.timezone, 'Africa/Lagos') AS timezone
+            COALESCE(bs.timezone, 'Africa/Lagos') AS timezone,
+            to_char(os.snoozed_until, 'YYYY-MM-DD') AS snoozed_until
      FROM orders o
      JOIN businesses b ON b.id = o.business_id
      LEFT JOIN notification_preferences np ON np.user_id = b.owner_user_id
      LEFT JOIN business_settings bs ON bs.business_id = b.id
+     LEFT JOIN order_snoozes os ON os.order_id = o.id
      WHERE o.status <> 'delivered'`,
   );
 
@@ -81,6 +85,10 @@ export async function processDueNotifications(now = new Date()) {
     }
 
     const today = localDateKey(now, order.timezone);
+    if (order.snoozed_until && order.snoozed_until > today) {
+      skipped += 1;
+      continue;
+    }
     const reminderMinutes = Number(order.reminder_time.slice(0, 2)) * 60 + Number(order.reminder_time.slice(3, 5));
     if (localMinutes(now, order.timezone) < reminderMinutes) {
       skipped += 1;
