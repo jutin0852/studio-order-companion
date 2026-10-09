@@ -28,8 +28,11 @@ function canvasBlob(canvas: HTMLCanvasElement, quality: number) {
 }
 
 export async function compressImage(file: File) {
+  if (!file.type.startsWith("image/")) throw new Error("Choose an image file to upload.");
+  if (file.size > 15 * 1024 * 1024) throw new Error("Choose an image smaller than 15 MB.");
   const image = await loadImage(file);
   const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+  if (!longestSide) throw new Error("This image could not be read. Try another file.");
   const scale = Math.min(1, MAX_DIMENSION / longestSide);
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
