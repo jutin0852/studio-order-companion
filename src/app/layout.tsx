@@ -8,6 +8,13 @@ const geist = Geist({ variable: "--font-geist", subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Studio — Order companion",
   description: "A calm workspace for confirmed paid orders.",
+  icons: {
+    icon: [
+      { url: "/icons/studio-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/studio-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/studio-192.png", sizes: "192x192", type: "image/png" }],
+  },
 };
 
 export const viewport: Viewport = {
