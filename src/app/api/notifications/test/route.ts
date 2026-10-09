@@ -16,7 +16,13 @@ export async function POST() {
       tag: "studio-test",
       kind: "test",
     });
-    if (result.sent === 0) return NextResponse.json({ error: "No active notification devices were found." }, { status: 404 });
+    if (result.sent === 0 && result.failed > 0) {
+      return NextResponse.json(
+        { error: "A notification device was found, but delivery failed. Turn notifications off and on again, then retry." },
+        { status: 503 },
+      );
+    }
+    if (result.sent === 0) return NextResponse.json({ error: "No active notification devices were found. Turn notifications on for this device, then retry." }, { status: 404 });
     return NextResponse.json({ ok: true, sent: result.sent });
   } catch {
     return NextResponse.json({ error: "The test notification could not be sent." }, { status: 503 });
