@@ -59,6 +59,54 @@ function dailyDigestCopy(orderCount: number, today: string) {
   };
 }
 
+type ReminderDelivery = {
+  dedupeKey: string;
+  orderId: string;
+  userId: string;
+  kind: "due_soon" | "due_today" | "overdue" | "daily_digest";
+  payload: Parameters<typeof sendPushToUser>[1];
+};
+
+async function deliverReminder(reminderInput: ReminderDelivery) {
+  if (!db) return { sent: 0, failed: 0, skipped: 1 };
+
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    // Serialize workers for this reminder key. The lock is transaction-scoped,
+    // so a second scheduler run cannot send until the first one records sent.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [reminderInput.dedupeKey]);
+    const reminder = await client.query<{ id: string; status: string }>(
+      `INSERT INTO reminders (business_id, order_id, kind, scheduled_for, dedupe_key)
+       SELECT business_id, $1, $2, now(), $3 FROM orders WHERE id = $1
+       ON CONFLICT (dedupe_key) DO UPDATE SET updated_at = now()
+       RETURNING id, status`,
+      [reminderInput.orderId, reminderInput.kind, reminderInput.dedupeKey],
+    );
+
+    if (!reminder.rows[0] || reminder.rows[0].status === "sent") {
+      await client.query("COMMIT");
+      return { sent: 0, failed: 0, skipped: 1 };
+    }
+
+    const delivery = await sendPushToUser(reminderInput.userId, reminderInput.payload);
+    if (delivery.sent > 0) {
+      await client.query("UPDATE reminders SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1", [reminder.rows[0].id]);
+    }
+    await client.query("COMMIT");
+    return { sent: delivery.sent, failed: delivery.failed, skipped: delivery.sent === 0 && delivery.failed === 0 ? 1 : 0 };
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Preserve the original notification error.
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function processDueNotifications(now = new Date()) {
   if (!db) return { processed: 0, sent: 0, failed: 0, skipped: 0 };
 
@@ -122,52 +170,30 @@ export async function processDueNotifications(now = new Date()) {
 
     processed += 1;
     const dedupeKey = `${order.order_id}:${kind}:${today}`;
-    const reminder = await db.query<{ id: string; status: string }>(
-      `INSERT INTO reminders (business_id, order_id, kind, scheduled_for, dedupe_key)
-       SELECT business_id, $1, $2, now(), $3 FROM orders WHERE id = $1
-       ON CONFLICT (dedupe_key) DO UPDATE SET updated_at = now()
-       RETURNING id, status`,
-      [order.order_id, kind, dedupeKey],
-    );
-    if (reminder.rows[0]?.status === "sent") {
-      skipped += 1;
-      continue;
-    }
-
-    const delivery = await sendPushToUser(order.user_id, { ...reminderCopy(kind, order), kind, tag: dedupeKey });
-    if (delivery.sent > 0) {
-      await db.query("UPDATE reminders SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1", [reminder.rows[0].id]);
-      sent += delivery.sent;
-    } else if (delivery.failed > 0) {
-      failed += delivery.failed;
-    } else {
-      skipped += 1;
-    }
+    const delivery = await deliverReminder({
+      dedupeKey,
+      orderId: order.order_id,
+      userId: order.user_id,
+      kind,
+      payload: { ...reminderCopy(kind, order), kind, tag: dedupeKey },
+    });
+    sent += delivery.sent;
+    failed += delivery.failed;
+    skipped += delivery.skipped;
   }
 
   for (const candidate of digestCandidates.values()) {
     const dedupeKey = `daily_digest:${candidate.userId}:${candidate.today}`;
-    const reminder = await db.query<{ id: string; status: string }>(
-      `INSERT INTO reminders (business_id, order_id, kind, scheduled_for, dedupe_key)
-       SELECT business_id, $1, 'daily_digest', now(), $2 FROM orders WHERE id = $1
-       ON CONFLICT (dedupe_key) DO UPDATE SET updated_at = now()
-       RETURNING id, status`,
-      [candidate.orderId, dedupeKey],
-    );
-    if (reminder.rows[0]?.status === "sent") {
-      skipped += 1;
-      continue;
-    }
-
-    const delivery = await sendPushToUser(candidate.userId, dailyDigestCopy(candidate.count, candidate.today));
-    if (delivery.sent > 0) {
-      await db.query("UPDATE reminders SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1", [reminder.rows[0].id]);
-      sent += delivery.sent;
-    } else if (delivery.failed > 0) {
-      failed += delivery.failed;
-    } else {
-      skipped += 1;
-    }
+    const delivery = await deliverReminder({
+      dedupeKey,
+      orderId: candidate.orderId,
+      userId: candidate.userId,
+      kind: "daily_digest",
+      payload: dailyDigestCopy(candidate.count, candidate.today),
+    });
+    sent += delivery.sent;
+    failed += delivery.failed;
+    skipped += delivery.skipped;
   }
 
   return { processed, sent, failed, skipped };
