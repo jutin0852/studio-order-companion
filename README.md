@@ -29,8 +29,73 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Deployment
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Deploy the Next.js app to your chosen Node-compatible host. Keep `CLOUDINARY_API_SECRET`, `BETTER_AUTH_SECRET`, and the database credentials server-side.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Authentication setup
+
+Studio uses self-hosted [Better Auth](https://better-auth.com/) with Neon/PostgreSQL. Copy `.env.example` to `.env.local`, add a Neon pooled connection string, and generate a long random `BETTER_AUTH_SECRET`.
+
+Then create the Better Auth tables in Neon:
+
+```bash
+npm run auth:migrate
+```
+
+Google sign-in is enabled when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are present. Add this redirect URI to the Google OAuth web client:
+
+```text
+http://localhost:3010/api/auth/callback/google
+```
+
+For phone testing over the local network, use the domain-style LAN host `http://192.168.1.3.nip.io:3010` and allow `http://192.168.1.3.nip.io:3010/api/auth/callback/google` in Google Cloud. Keep `BETTER_AUTH_ALLOWED_HOSTS` in sync with the LAN host.
+
+Email verification is intentionally optional. Password recovery sends through Resend when `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are configured; in local development, the reset link is logged for testing when those values are absent.
+
+## Push notification setup
+
+Studio uses browser Web Push so a seller can get actionable order reminders even when the app is not open. The first slice covers:
+
+- explicit device opt-in from Settings;
+- persistent per-user device subscriptions in `push_subscriptions`;
+- due-soon, due-today, and overdue reminders with daily deduplication;
+- ready-to-send and delivered status notifications;
+- notification actions that open the Orders screen;
+- per-device removal and a Send test control.
+
+Generate one VAPID key pair and keep the private key server-side:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Set `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, and a long random `CRON_SECRET` in `.env.local`. The schema migration adds `push_subscriptions` and a reminder dedupe key:
+
+```bash
+npm run db:migrate
+```
+
+The processor is intentionally a protected endpoint because the Next.js app cannot wake itself while the phone is closed. Run it every 5–15 minutes with a scheduler that can reach the deployed app:
+
+```bash
+npm run notifications:process
+```
+
+For a no-subscription production scheduler, deploy the small Cloudflare Worker
+in `workers/notification-scheduler`. It uses Cloudflare Workers Free's cron
+trigger to call the processor every 15 minutes. Set its `APP_URL` secret to the
+deployed HTTPS Studio URL and its `CRON_SECRET` secret to the same value used by
+the Studio deployment, then run `npx wrangler deploy` from that directory.
+
+The phone must use an HTTPS origin for web push. `localhost` is allowed for development, but a LAN HTTP address such as `192.168.1.3.nip.io` will show the user how to fix the secure-context requirement instead of silently failing.
+
+## Image storage setup
+
+Studio uses [Cloudinary](https://cloudinary.com/) for optional product and business-logo images. The browser resizes images to WebP, limits the longest side to 1600px, and rejects uploads above 900 KB before upload so the images stay fast on phones. Uploads are signed by the server and placed in a per-user folder; the API secret never reaches the browser.
+
+1. Create a Cloudinary account and open the Product environment API keys page.
+2. Copy the cloud name, API key, and API secret into `.env.local` using the `CLOUDINARY_*` variables from `.env.example`.
+3. Keep `CLOUDINARY_API_SECRET` server-only. Do not expose it as a `NEXT_PUBLIC_*` variable.
+
+The current app uses Cloudinary's browser upload API with a short-lived server-generated signature. Cloudinary's free plan is suitable for early testing; monitor the account's monthly usage as the catalog grows.
