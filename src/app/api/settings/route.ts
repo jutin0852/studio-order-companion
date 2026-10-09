@@ -29,18 +29,26 @@ export async function PATCH(request: Request) {
   const body = await request.json().catch(() => null) as { workingDays?: number; reminderTime?: string } | null;
   const workingDays = Number(body?.workingDays);
   const reminderTime = body?.reminderTime;
-  if (!Number.isInteger(workingDays) || workingDays < 1 || workingDays > 31 || !reminderTime || !/^\d{2}:\d{2}$/.test(reminderTime)) return NextResponse.json({ error: "Choose valid business days and reminder time." }, { status: 400 });
+  const [hours, minutes] = reminderTime?.split(":").map(Number) ?? [];
+  if (!Number.isInteger(workingDays) || workingDays < 1 || workingDays > 31 || !reminderTime || !/^\d{2}:\d{2}$/.test(reminderTime) || !Number.isInteger(hours) || !Number.isInteger(minutes) || hours > 23 || minutes > 59) return NextResponse.json({ error: "Choose valid business days and reminder time." }, { status: 400 });
 
   try {
     const businessId = await ensureUserWorkspace(session.user.id, session.user.name);
     const result = await db.query(
-      `UPDATE business_settings
-       SET working_days = $2, reminder_time = $3::time, updated_at = now()
-       WHERE business_id = $1
-       RETURNING working_days, reminder_time::text AS reminder_time`,
-      [businessId, workingDays, reminderTime],
+      `WITH updated_settings AS (
+         UPDATE business_settings
+         SET working_days = $2, reminder_time = $3::time, updated_at = now()
+         WHERE business_id = $1
+         RETURNING working_days, reminder_time::text AS reminder_time
+       ), updated_preferences AS (
+         UPDATE notification_preferences
+         SET reminder_time = $3::time, updated_at = now()
+         WHERE user_id = $4
+       )
+       SELECT working_days, reminder_time FROM updated_settings`,
+      [businessId, workingDays, reminderTime, session.user.id],
     );
-    await db.query("UPDATE notification_preferences SET reminder_time = $2::time, updated_at = now() WHERE user_id = $1", [session.user.id, reminderTime]);
+    if (!result.rows[0]) return NextResponse.json({ error: "Settings could not be saved." }, { status: 503 });
     return NextResponse.json({ settings: { workingDays: Number(result.rows[0].working_days), reminderTime: String(result.rows[0].reminder_time).slice(0, 5) } });
   } catch {
     return NextResponse.json({ error: "Settings could not be saved." }, { status: 503 });

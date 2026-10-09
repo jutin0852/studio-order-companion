@@ -56,7 +56,7 @@ export const auth = betterAuth({
     requireEmailVerification: false,
     autoSignIn: true,
     sendResetPassword: async ({ user, url }) => {
-      void sendAuthEmail({
+      await sendAuthEmail({
         to: user.email,
         subject: "Reset your Studio password",
         text: `Reset your Studio password here: ${url}`,
