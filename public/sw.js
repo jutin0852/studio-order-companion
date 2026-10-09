@@ -1,3 +1,7 @@
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
+
 self.addEventListener("push", (event) => {
   const fallback = { title: "Studio", body: "An order needs your attention.", url: "/orders", tag: "studio-order" };
   let data = fallback;
