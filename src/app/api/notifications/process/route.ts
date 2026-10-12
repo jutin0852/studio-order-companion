@@ -8,7 +8,15 @@ export async function POST(request: Request) {
 
   try {
     return NextResponse.json(await processDueNotifications());
-  } catch {
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error &&
+      typeof error.code === "string" && /^[A-Z0-9_]{1,32}$/.test(error.code)
+        ? error.code
+        : undefined;
+    console.error("[notifications] automatic reminder processing failed", {
+      code,
+    });
     return NextResponse.json({ error: "The notification processor failed." }, { status: 503 });
   }
 }

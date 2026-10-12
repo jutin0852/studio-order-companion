@@ -1,7 +1,14 @@
 "use client";
 
-const MAX_DIMENSION = 1600;
-const MAX_BYTES = 900_000;
+type ImageCategory = "products" | "logos";
+
+const MAX_INPUT_BYTES = 25 * 1024 * 1024;
+const MIN_DIMENSION = 320;
+
+const compressionPolicy: Record<ImageCategory, { maxDimension: number; targetBytes: number }> = {
+  products: { maxDimension: 1280, targetBytes: 700_000 },
+  logos: { maxDimension: 768, targetBytes: 350_000 },
+};
 
 function loadImage(file: File) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -27,55 +34,65 @@ function canvasBlob(canvas: HTMLCanvasElement, quality: number) {
   });
 }
 
-export async function compressImage(file: File) {
-  if (!file.type.startsWith("image/")) throw new Error("Choose an image file to upload.");
-  if (file.size > 15 * 1024 * 1024) throw new Error("Choose an image smaller than 15 MB.");
-  const image = await loadImage(file);
-  const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
-  if (!longestSide) throw new Error("This image could not be read. Try another file.");
-  const scale = Math.min(1, MAX_DIMENSION / longestSide);
+function drawScaledImage(image: HTMLImageElement, longestSide: number, limit: number) {
+  const scale = Math.min(1, limit / longestSide);
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
   canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Your browser could not prepare this image.");
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-  for (const quality of [0.82, 0.72, 0.62, 0.52]) {
-    const blob = await canvasBlob(canvas, quality);
-    if (blob.size <= MAX_BYTES || quality === 0.52) return blob;
-  }
-
-  throw new Error("This image is too large after compression. Choose a smaller image.");
+  return canvas;
 }
 
-export async function uploadImage(file: File, category: "products" | "logos") {
-  const compressed = await compressImage(file);
-  const response = await fetch("/api/uploads/presign", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ category, contentType: compressed.type, size: compressed.size }),
-  });
+export async function compressImage(file: File, category: ImageCategory = "products") {
+  if (!file.type.startsWith("image/")) throw new Error("Choose an image file to upload.");
+  if (file.size > MAX_INPUT_BYTES) throw new Error("Choose an image smaller than 25 MB.");
+  const image = await loadImage(file);
+  const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+  if (!longestSide) throw new Error("This image could not be read. Try another file.");
 
-  const payload = await response.json().catch(() => null) as { error?: string; cloudName?: string; apiKey?: string; timestamp?: number; signature?: string; folder?: string } | null;
-  if (!response.ok || !payload?.cloudName || !payload.apiKey || !payload.timestamp || !payload.signature || !payload.folder) {
-    throw new Error(payload?.error ?? "Image storage is not available yet.");
+  const { maxDimension, targetBytes } = compressionPolicy[category];
+  let dimension = Math.min(maxDimension, longestSide);
+  let smallestBlob: Blob | null = null;
+
+  while (true) {
+    const canvas = drawScaledImage(image, longestSide, dimension);
+    for (const quality of [0.84, 0.76, 0.68, 0.6, 0.52, 0.44]) {
+      const blob = await canvasBlob(canvas, quality);
+      smallestBlob = blob;
+      if (blob.size <= targetBytes) return blob;
+    }
+
+    if (dimension <= MIN_DIMENSION) break;
+    dimension = Math.max(MIN_DIMENSION, Math.round(dimension * 0.72));
   }
 
-  const formData = new FormData();
-  formData.append("file", compressed, `studio-${category}-${Date.now()}.webp`);
-  formData.append("api_key", payload.apiKey);
-  formData.append("timestamp", String(payload.timestamp));
-  formData.append("signature", payload.signature);
-  formData.append("folder", payload.folder);
+  if (smallestBlob && smallestBlob.size <= 2_000_000) return smallestBlob;
+  throw new Error("This image could not be made compact enough. Try another photo.");
+}
 
-  const uploadResponse = await fetch(`https://api.cloudinary.com/v1_1/${payload.cloudName}/image/upload`, {
+function extensionFor(contentType: string) {
+  if (contentType === "image/jpeg") return "jpg";
+  if (contentType === "image/png") return "png";
+  return "webp";
+}
+
+export async function uploadImage(file: File, category: ImageCategory) {
+  const compressed = await compressImage(file, category);
+  const formData = new FormData();
+  formData.append("category", category);
+  formData.append("file", compressed, `studio-${category}-${Date.now()}.${extensionFor(compressed.type)}`);
+
+  const response = await fetch("/api/uploads/presign", {
     method: "POST",
     body: formData,
   });
-  const uploadPayload = await uploadResponse.json().catch(() => null) as { secure_url?: string; error?: { message?: string } } | null;
-  if (!uploadResponse.ok || !uploadPayload?.secure_url) {
-    throw new Error(uploadPayload?.error?.message ?? "The image upload failed. Try again.");
+
+  const payload = await response.json().catch(() => null) as { error?: string; url?: string } | null;
+  if (!response.ok || !payload?.url) {
+    throw new Error(payload?.error ?? "Image storage is not available yet.");
   }
-  return uploadPayload.secure_url;
+
+  return payload.url;
 }

@@ -20,13 +20,23 @@ type ProductRow = {
   id: string;
   name: string;
   price: string | number;
-  lead_time_days: number;
   image_url: string | null;
   archived: boolean;
 };
 
 type ExpenseRow = { id: string; label: string; amount: string | number; occurred_on: string; notes: string | null };
-type SettingsRow = { working_days: number; reminder_time: string };
+type SettingsRow = {
+  working_days: number;
+  reminder_time: string;
+  timezone: string;
+  attention_days_before: number;
+  due_soon_days_before: number[];
+  overdue_grace_days: number;
+  overdue_repeat_days: number;
+  stalled_reminders_enabled: boolean;
+  stalled_after_days: number;
+  stalled_repeat_days: number;
+};
 type ProfileRow = { business_name: string; logo_url: string | null; owner_name: string };
 type SnoozeRow = { order_id: string; snoozed_until: string };
 
@@ -51,7 +61,6 @@ function serializeProduct(row: ProductRow) {
     id: row.id,
     name: row.name,
     price: Number(row.price),
-    leadTime: Number(row.lead_time_days),
     ...(row.image_url ? { image: row.image_url } : {}),
     archived: row.archived,
     color: "bg-plaster",
@@ -83,7 +92,7 @@ export async function GET() {
         [businessId],
       ),
       db.query<ProductRow>(
-        `SELECT id, name, price, lead_time_days, image_url, archived
+        `SELECT id, name, price, image_url, archived
          FROM products
          WHERE business_id = $1
          ORDER BY archived ASC, name ASC`,
@@ -97,7 +106,10 @@ export async function GET() {
         [businessId],
       ),
       db.query<SettingsRow>(
-        `SELECT working_days, reminder_time::text AS reminder_time
+        `SELECT working_days, reminder_time::text AS reminder_time, timezone,
+                attention_days_before, due_soon_days_before,
+                overdue_grace_days, overdue_repeat_days,
+                stalled_reminders_enabled, stalled_after_days, stalled_repeat_days
          FROM business_settings
          WHERE business_id = $1`,
         [businessId],
@@ -125,6 +137,14 @@ export async function GET() {
       settings: {
         workingDays: Number(settingsRow?.working_days ?? 5),
         reminderTime: String(settingsRow?.reminder_time ?? "09:00").slice(0, 5),
+        timeZone: String(settingsRow?.timezone ?? "Africa/Lagos"),
+        attentionDaysBefore: Number(settingsRow?.attention_days_before ?? 3),
+        dueSoonDaysBefore: (settingsRow?.due_soon_days_before ?? [3, 2]).map(Number),
+        overdueGraceDays: Number(settingsRow?.overdue_grace_days ?? 0),
+        overdueRepeatDays: Number(settingsRow?.overdue_repeat_days ?? 1),
+        stalledRemindersEnabled: settingsRow?.stalled_reminders_enabled ?? false,
+        stalledAfterDays: Number(settingsRow?.stalled_after_days ?? 2),
+        stalledRepeatDays: Number(settingsRow?.stalled_repeat_days ?? 2),
       },
       profile: serializeProfile(profile.rows[0], session.user.name),
       snoozed: Object.fromEntries(snoozed.rows.map((row) => [row.order_id, row.snoozed_until])),

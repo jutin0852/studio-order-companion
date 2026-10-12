@@ -15,6 +15,7 @@ export function PwaUpdatePrompt() {
 
     let cancelled = false;
     let registration: ServiceWorkerRegistration | null = null;
+    let updateTimer: number | undefined;
 
     const showWaitingWorker = (worker?: ServiceWorker | null) => {
       const nextWorker = worker ?? registration?.waiting;
@@ -45,14 +46,18 @@ export function PwaUpdatePrompt() {
       if (document.visibilityState === "visible") void registration?.update().catch(() => undefined);
     };
 
+    const checkWhenOnline = () => checkForUpdate();
+
     navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
     document.addEventListener("visibilitychange", checkForUpdate);
+    window.addEventListener("online", checkWhenOnline);
 
     void navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }).then((nextRegistration) => {
       if (cancelled) return;
       registration = nextRegistration;
       showWaitingWorker();
       registration.addEventListener("updatefound", handleUpdateFound);
+      updateTimer = window.setInterval(checkForUpdate, 60 * 60 * 1000);
       return registration.update();
     }).catch(() => undefined);
 
@@ -61,6 +66,8 @@ export function PwaUpdatePrompt() {
       registration?.removeEventListener("updatefound", handleUpdateFound);
       navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
       document.removeEventListener("visibilitychange", checkForUpdate);
+      window.removeEventListener("online", checkWhenOnline);
+      if (updateTimer) window.clearInterval(updateTimer);
     };
   }, []);
 

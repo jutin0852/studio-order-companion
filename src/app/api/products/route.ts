@@ -7,7 +7,6 @@ type ProductRow = {
   id: string;
   name: string;
   price: string | number;
-  lead_time_days: number;
   image_url: string | null;
   archived: boolean;
 };
@@ -17,7 +16,6 @@ function serializeProduct(row: ProductRow) {
     id: row.id,
     name: row.name,
     price: Number(row.price),
-    leadTime: Number(row.lead_time_days),
     ...(row.image_url ? { image: row.image_url } : {}),
     archived: row.archived,
     color: "bg-plaster",
@@ -40,7 +38,7 @@ export async function GET() {
   try {
     const businessId = await ensureUserWorkspace(session.user.id, session.user.name);
     const result = await db.query<ProductRow>(
-      `SELECT id, name, price, lead_time_days, image_url, archived
+      `SELECT id, name, price, image_url, archived
        FROM products
        WHERE business_id = $1
        ORDER BY archived ASC, name ASC`,
@@ -57,12 +55,11 @@ export async function POST(request: Request) {
   if (!session) return NextResponse.json({ error: "You must be signed in to create a product." }, { status: 401 });
   if (!db) return NextResponse.json({ error: "Product storage is not configured yet." }, { status: 503 });
 
-  const body = await request.json().catch(() => null) as { name?: string; price?: number; leadTime?: number; image?: string | null; archived?: boolean } | null;
+  const body = await request.json().catch(() => null) as { name?: string; price?: number; image?: string | null; archived?: boolean } | null;
   const name = body?.name?.trim();
   const price = body?.price;
-  const leadTime = body?.leadTime;
-  if (!name || name.length > 160 || typeof price !== "number" || !Number.isFinite(price) || price <= 0 || typeof leadTime !== "number" || !Number.isInteger(leadTime) || leadTime < 1 || leadTime > 31 || (body?.image !== undefined && body.image !== null && !validImageUrl(body.image))) {
-    return NextResponse.json({ error: "Add a valid product name, price, working days, and image." }, { status: 400 });
+  if (!name || name.length > 160 || typeof price !== "number" || !Number.isFinite(price) || price <= 0 || (body?.image !== undefined && body.image !== null && !validImageUrl(body.image))) {
+    return NextResponse.json({ error: "Add a valid product name and price, and choose a valid image." }, { status: 400 });
   }
   const image = body?.image ?? null;
   const archived = body?.archived ?? false;
@@ -71,10 +68,13 @@ export async function POST(request: Request) {
     const businessId = await ensureUserWorkspace(session.user.id, session.user.name);
     const result = await db.query<ProductRow>(
       `INSERT INTO products (business_id, name, price, lead_time_days, image_url, archived)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, price, lead_time_days, image_url, archived`,
-      [businessId, name, price, leadTime, image, archived],
+       SELECT $1, $2, $3, settings.working_days, $4, $5
+       FROM business_settings settings
+       WHERE settings.business_id = $1
+       RETURNING id, name, price, image_url, archived`,
+      [businessId, name, price, image, archived],
     );
+    if (!result.rows[0]) throw new Error("Business settings are unavailable.");
     return NextResponse.json({ product: serializeProduct(result.rows[0]) }, { status: 201 });
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {

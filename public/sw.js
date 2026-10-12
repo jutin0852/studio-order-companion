@@ -1,3 +1,7 @@
+// This changes on every Vercel deployment and participates in the browser's
+// service-worker update check, so normal app releases can offer an Update button.
+importScripts("/api/pwa-version");
+
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
 });

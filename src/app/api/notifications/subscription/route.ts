@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { removePushSubscription, savePushSubscription } from "@/lib/push";
+import { isAllowedPushEndpoint, PushEndpointConflictError, removePushSubscription, savePushSubscription } from "@/lib/push";
 
 type SubscriptionBody = {
   endpoint?: string;
@@ -10,7 +10,11 @@ type SubscriptionBody = {
 };
 
 function isValidSubscription(body: SubscriptionBody | null): body is Required<Pick<SubscriptionBody, "endpoint" | "keys">> & SubscriptionBody {
-  return Boolean(body?.endpoint?.startsWith("https://") && body.keys?.p256dh && body.keys.auth);
+  return Boolean(
+    isAllowedPushEndpoint(body?.endpoint) &&
+    typeof body?.keys?.p256dh === "string" && /^[A-Za-z0-9_-]{80,120}$/.test(body.keys.p256dh) &&
+    typeof body.keys.auth === "string" && /^[A-Za-z0-9_-]{16,128}$/.test(body.keys.auth)
+  );
 }
 
 export async function POST(request: Request) {
@@ -27,7 +31,10 @@ export async function POST(request: Request) {
       user_agent: (await headers()).get("user-agent"),
     });
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    if (error instanceof PushEndpointConflictError) {
+      return NextResponse.json({ error: "This notification device is already linked to another account." }, { status: 409 });
+    }
     return NextResponse.json({ error: "The notification device could not be saved." }, { status: 503 });
   }
 }
@@ -36,7 +43,7 @@ export async function DELETE(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to disable notifications." }, { status: 401 });
   const body = await request.json().catch(() => null) as { endpoint?: string } | null;
-  if (!body?.endpoint?.startsWith("https://")) return NextResponse.json({ error: "A push endpoint is required." }, { status: 400 });
+  if (!isAllowedPushEndpoint(body?.endpoint)) return NextResponse.json({ error: "A supported push endpoint is required." }, { status: 400 });
 
   try {
     await removePushSubscription(session.user.id, body.endpoint);

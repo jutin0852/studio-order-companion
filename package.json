@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --experimental-strip-types --test src/lib/push-endpoint.test.mjs src/lib/read-body-with-limit.test.mjs src/lib/reminder-days.test.mjs workers/notification-scheduler/src/index.test.mjs",
     "auth:migrate": "npx auth@latest migrate",
     "db:migrate": "node --env-file=.env.local scripts/migrate-studio-db.mjs",
     "db:verify": "node --env-file=.env.local scripts/verify-studio-db.mjs",

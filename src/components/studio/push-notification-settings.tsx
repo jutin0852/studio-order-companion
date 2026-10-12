@@ -25,7 +25,7 @@ function urlBase64ToUint8Array(value: string) {
   return Uint8Array.from([...rawData].map((character) => character.charCodeAt(0)));
 }
 
-export function PushNotificationSettings() {
+export function PushNotificationSettings({ dueSoonDaysBefore }: { dueSoonDaysBefore: number[] }) {
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [subscription, setSubscription] = useState<PushSubscription | null>(null);
   const [supported, setSupported] = useState<boolean | null>(null);
@@ -130,9 +130,12 @@ export function PushNotificationSettings() {
     }
   };
 
+  const reminderDayDescription = dueSoonDaysBefore.length === 0
+    ? "No pre-due reminders are scheduled."
+    : `Heads-ups ${[...dueSoonDaysBefore].sort((a, b) => a - b).map((day) => `${day} day${day === 1 ? "" : "s"}`).join(", ").replace(/, ([^,]*)$/, " and $1")} before the due date.`;
   const options: { key: Exclude<PreferenceKey, "pushEnabled">; label: string; description: string }[] = [
-    { key: "dueTodayEnabled", label: "Due today", description: "A focused reminder for orders that need action today." },
-    { key: "dueSoonEnabled", label: "Due soon", description: "A heads-up for orders due in the next two days." },
+    { key: "dueTodayEnabled", label: "Due date", description: "A focused reminder on the day an order is due." },
+    { key: "dueSoonEnabled", label: "Before the due date", description: reminderDayDescription },
     { key: "overdueEnabled", label: "Overdue", description: "A persistent alert until an overdue order moves forward." },
     { key: "dailyDigestEnabled", label: "Daily summary", description: "One morning summary of orders that need attention." },
   ];
