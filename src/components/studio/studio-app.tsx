@@ -300,10 +300,10 @@ const statusLabel: Record<Status, string> = {
   delivered: "Delivered",
 };
 const statusStyle: Record<Status, string> = {
-  not_started: "status-neutral",
-  in_progress: "status-attention",
-  ready: "status-money",
-  delivered: "status-delivery",
+  not_started: "status-not-started",
+  in_progress: "status-in-progress",
+  ready: "status-complete",
+  delivered: "status-complete",
 };
 const nextActionLabel: Partial<Record<Status, string>> = {
   not_started: "Start order",
@@ -2480,11 +2480,11 @@ function Today({
               <Card key={order.id} className="priority-card ring-0">
                 <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:p-4">
                   <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-plaster text-slate">
                       <Package className="h-4 w-4" aria-hidden="true" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-brand">
+                      <p className="text-xs font-semibold text-stone-600">
                         {dueAttentionLabel(order, today, overdueGraceDays)}
                       </p>
                       <h3 className="truncate text-sm font-semibold text-stone-950">
@@ -2494,12 +2494,12 @@ function Today({
                         {order.customer}
                       </p>
                     </div>
-                    <span className="shrink-0 rounded-full bg-brand-soft px-2.5 py-1 text-xs font-semibold text-brand">
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle[order.status]}`}>
                       {statusLabel[order.status]}
                     </span>
                   </div>
                   {isSnoozed && (
-                    <p className="rounded-lg bg-brand-soft px-3 py-2 text-xs font-medium text-stone-600 sm:max-w-48">
+                    <p className="rounded-lg bg-plaster px-3 py-2 text-xs font-medium text-stone-600 sm:max-w-48">
                       Reminder snoozed until tomorrow. Deadline alerts remain
                       active.
                     </p>
