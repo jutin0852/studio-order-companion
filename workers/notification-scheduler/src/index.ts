@@ -45,9 +45,20 @@ async function processNotifications(env: Env): Promise<ProcessorResult> {
   return { status: response.status, body };
 }
 
-function isAuthorized(request: Request, env: Env) {
-  const authorization = request.headers.get("authorization");
-  return authorization === `Bearer ${env.CRON_SECRET}`;
+async function digest(value: string) {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+}
+
+// Hash both sides so the comparison is constant-time and length-independent.
+async function isAuthorized(request: Request, env: Env) {
+  if (!env.CRON_SECRET) return false;
+  const [supplied, expected] = await Promise.all([
+    digest(request.headers.get("authorization") ?? ""),
+    digest(`Bearer ${env.CRON_SECRET}`),
+  ]);
+  let difference = 0;
+  for (let index = 0; index < expected.length; index += 1) difference |= supplied[index] ^ expected[index];
+  return difference === 0;
 }
 
 export default {
@@ -78,7 +89,7 @@ export default {
     }
 
     if (url.pathname === "/run" && request.method === "POST") {
-      if (!isAuthorized(request, env)) {
+      if (!(await isAuthorized(request, env))) {
         return Response.json({ error: "Not authorized." }, { status: 401 });
       }
 
