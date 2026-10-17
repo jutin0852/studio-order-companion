@@ -23,8 +23,9 @@ npx wrangler secret put CRON_SECRET
 npx wrangler deploy
 ```
 
-The `* * * * *` schedule is interpreted in UTC. The application applies each
-user's configured reminder time and timezone before sending notifications.
+The `* * * * *` schedule is interpreted in UTC. When a user saves their alert
+time, the application records that device's IANA time zone and applies the
+configured local reminder time before sending notifications.
 Cloudflare may take up to 15 minutes to propagate a changed Cron Trigger after
 deployment; once active, automatic checks run about once per minute. The app
 sends reminders once per configured day/time for orders matching the user's
