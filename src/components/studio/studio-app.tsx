@@ -2784,6 +2784,7 @@ function Add({
             required
             id="customer"
             name="customer"
+            maxLength={160}
             placeholder="e.g. Customer name"
             className="mt-2 h-11"
           />
@@ -3006,6 +3007,7 @@ function Add({
           <Textarea
             id="notes"
             name="notes"
+            maxLength={2000}
             rows={3}
             placeholder="Colour, size, delivery details, or anything useful."
             className="mt-2"
@@ -3189,6 +3191,7 @@ function NewProduct({
               <Input
                 required
                 id="product-name"
+                maxLength={160}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="e.g. Linen co-ord set"
@@ -3669,6 +3672,7 @@ function ProductEditor({
               <Input
                 required
                 id="product-name"
+                maxLength={160}
                 value={name}
                 onChange={(event) => {
                   setName(event.target.value);
@@ -5228,6 +5232,7 @@ function OrderDetail({
               <Label htmlFor="edit-customer">Customer name</Label>
               <Input
                 id="edit-customer"
+                maxLength={160}
                 value={customer}
                 onChange={(event) => setCustomer(event.target.value)}
                 className="mt-2 h-11"
@@ -5237,6 +5242,7 @@ function OrderDetail({
               <Label htmlFor="edit-product">Product</Label>
               <Input
                 id="edit-product"
+                maxLength={160}
                 value={product}
                 onChange={(event) => setProduct(event.target.value)}
                 className="mt-2 h-11"
@@ -5269,6 +5275,7 @@ function OrderDetail({
               <Label htmlFor="edit-notes">Notes</Label>
               <Textarea
                 id="edit-notes"
+                maxLength={2000}
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 rows={3}

@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { isStudioImageUrl } from "@/lib/image-url";
 
 type ProfileRow = { business_name: string; logo_url: string | null; owner_name: string };
 
@@ -51,7 +52,7 @@ export async function PATCH(request: Request) {
   const ownerName = body.ownerName?.trim();
   if (businessName !== undefined && (!businessName || businessName.length > 160)) return NextResponse.json({ error: "Enter a valid business name." }, { status: 400 });
   if (ownerName !== undefined && ownerName.length > 120) return NextResponse.json({ error: "Your name is too long." }, { status: 400 });
-  if (body.logo !== undefined && body.logo !== null && (body.logo.length > 2_000 || !body.logo.startsWith("https://"))) return NextResponse.json({ error: "That business image is not valid." }, { status: 400 });
+  if (body.logo !== undefined && body.logo !== null && !isStudioImageUrl(body.logo, process.env.CLOUDINARY_CLOUD_NAME)) return NextResponse.json({ error: "That business image is not valid." }, { status: 400 });
 
   try {
     const businessId = await ensureUserWorkspace(session.user.id, session.user.name);

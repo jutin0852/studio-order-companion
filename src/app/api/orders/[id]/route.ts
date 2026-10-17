@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { FIELD_LIMITS, optionalText, requiredText } from "@/lib/field-limits";
 import { sendPushToUser } from "@/lib/push";
 
 const statuses = new Set(["not_started", "in_progress", "ready", "delivered"]);
@@ -52,8 +53,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   } | null;
   if (!body || Object.keys(body).length === 0) return NextResponse.json({ error: "Add at least one order change." }, { status: 400 });
   if (body.status !== undefined && !statuses.has(body.status)) return NextResponse.json({ error: "That order status is not valid." }, { status: 400 });
-  if (body.customerName !== undefined && !body.customerName.trim()) return NextResponse.json({ error: "Customer name cannot be empty." }, { status: 400 });
-  if (body.productName !== undefined && !body.productName.trim()) return NextResponse.json({ error: "Product name cannot be empty." }, { status: 400 });
+  const customerName = body.customerName === undefined ? undefined : requiredText(body.customerName, FIELD_LIMITS.customerName);
+  if (customerName === null) return NextResponse.json({ error: `Customer name is required and must be ${FIELD_LIMITS.customerName} characters or fewer.` }, { status: 400 });
+  const productName = body.productName === undefined ? undefined : requiredText(body.productName, FIELD_LIMITS.productName);
+  if (productName === null) return NextResponse.json({ error: `Product name is required and must be ${FIELD_LIMITS.productName} characters or fewer.` }, { status: 400 });
+  const notes = body.notes === undefined ? undefined : optionalText(body.notes, FIELD_LIMITS.orderNotes);
+  if (notes === null) return NextResponse.json({ error: `Notes must be ${FIELD_LIMITS.orderNotes} characters or fewer.` }, { status: 400 });
   if (body.amountPaid !== undefined && (!Number.isFinite(body.amountPaid) || body.amountPaid <= 0)) return NextResponse.json({ error: "Amount paid must be greater than zero." }, { status: 400 });
   if (body.dueDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate)) return NextResponse.json({ error: "Due date is not valid." }, { status: 400 });
 
@@ -71,11 +76,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const updates: string[] = [];
     const addUpdate = (column: string, value: unknown) => { values.push(value); updates.push(`${column} = $${values.length}`); };
 
-    if (body.customerName !== undefined) addUpdate("customer_name", body.customerName.trim());
-    if (body.productName !== undefined) addUpdate("product_name", body.productName.trim());
+    if (customerName !== undefined) addUpdate("customer_name", customerName);
+    if (productName !== undefined) addUpdate("product_name", productName);
     if (body.amountPaid !== undefined) addUpdate("amount_paid", body.amountPaid);
     if (body.dueDate !== undefined) addUpdate("due_date", body.dueDate);
-    if (body.notes !== undefined) addUpdate("notes", body.notes?.trim() || null);
+    if (notes !== undefined) addUpdate("notes", notes || null);
     if (body.productId !== undefined) {
       let productId: string | null = null;
       if (body.productId) {

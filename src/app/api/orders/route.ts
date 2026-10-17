@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { FIELD_LIMITS, optionalText, requiredText } from "@/lib/field-limits";
 
 const statuses = new Set(["not_started", "in_progress", "ready", "delivered"]);
 
@@ -73,13 +74,17 @@ export async function POST(request: Request) {
     clientRequestId?: string;
     status?: string;
   } | null;
-  const customerName = body?.customerName?.trim();
-  const productName = body?.productName?.trim();
+  const customerName = requiredText(body?.customerName, FIELD_LIMITS.customerName);
+  const productName = requiredText(body?.productName, FIELD_LIMITS.productName);
+  const notes = optionalText(body?.notes, FIELD_LIMITS.orderNotes);
   const amountPaid = body?.amountPaid;
   const dueDate = body?.dueDate;
-  const clientRequestId = body?.clientRequestId?.trim();
+  const clientRequestId = typeof body?.clientRequestId === "string" ? body.clientRequestId.trim() : undefined;
   const status = body?.status ?? "not_started";
 
+  if (notes === null) {
+    return NextResponse.json({ error: `Notes must be ${FIELD_LIMITS.orderNotes} characters or fewer.` }, { status: 400 });
+  }
   if (!customerName || !productName || typeof amountPaid !== "number" || !Number.isFinite(amountPaid) || amountPaid <= 0 || !dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !statuses.has(status)) {
     return NextResponse.json({ error: "Add a customer, product, amount paid, and due date." }, { status: 400 });
   }
@@ -104,7 +109,7 @@ export async function POST(request: Request) {
          status = EXCLUDED.status,
          updated_at = now()
        RETURNING id, customer_name, product_name, product_id, amount_paid, to_char(due_date, 'YYYY-MM-DD') AS due_date, status, notes, client_request_id, created_at`,
-      [businessId, productId, productName, customerName, amountPaid, dueDate, body?.notes?.trim() ?? "", clientRequestId ?? "", status],
+      [businessId, productId, productName, customerName, amountPaid, dueDate, notes, clientRequestId ?? "", status],
     );
     return NextResponse.json({ order: serializeOrder(result.rows[0]) }, { status: 201 });
   } catch {
