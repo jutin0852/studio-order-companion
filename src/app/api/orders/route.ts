@@ -17,6 +17,7 @@ type OrderRow = {
   notes: string | null;
   client_request_id: string | null;
   created_at: string | Date;
+  inserted?: boolean;
 };
 
 function serializeOrder(row: OrderRow) {
@@ -106,12 +107,19 @@ export async function POST(request: Request) {
          amount_paid = EXCLUDED.amount_paid,
          due_date = EXCLUDED.due_date,
          notes = EXCLUDED.notes,
-         status = EXCLUDED.status,
+         -- A replayed or edited pending order may update its details, but a stale
+         -- retry must never move an order backwards (e.g. delivered -> not_started).
+         -- Deliberate status changes go through PATCH once the order is synced.
+         status = CASE WHEN array_position(ARRAY['not_started','in_progress','ready','delivered'], EXCLUDED.status)
+                            > array_position(ARRAY['not_started','in_progress','ready','delivered'], orders.status)
+                       THEN EXCLUDED.status ELSE orders.status END,
+         completed_at = CASE WHEN orders.status = 'delivered' THEN orders.completed_at
+                             WHEN EXCLUDED.status = 'delivered' THEN now() ELSE NULL END,
          updated_at = now()
-       RETURNING id, customer_name, product_name, product_id, amount_paid, to_char(due_date, 'YYYY-MM-DD') AS due_date, status, notes, client_request_id, created_at`,
+       RETURNING id, customer_name, product_name, product_id, amount_paid, to_char(due_date, 'YYYY-MM-DD') AS due_date, status, notes, client_request_id, created_at, (xmax = 0) AS inserted`,
       [businessId, productId, productName, customerName, amountPaid, dueDate, notes, clientRequestId ?? "", status],
     );
-    return NextResponse.json({ order: serializeOrder(result.rows[0]) }, { status: 201 });
+    return NextResponse.json({ order: serializeOrder(result.rows[0]) }, { status: result.rows[0].inserted ? 201 : 200 });
   } catch {
     return NextResponse.json({ error: "The order could not be saved right now." }, { status: 503 });
   }
