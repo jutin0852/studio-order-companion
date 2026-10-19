@@ -48,6 +48,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { PushNotificationSettings } from "@/components/studio/push-notification-settings";
+import { ReceiptDialog } from "@/components/studio/receipt-dialog";
+import { ReceiptSettingsPanel } from "@/components/studio/receipt-settings";
 import { uploadImage } from "@/lib/image-upload";
 import { parseMoneyInput } from "@/lib/money";
 
@@ -5107,6 +5109,7 @@ function SettingsPanel({
       <div className="mt-6 max-w-2xl">
         <PushNotificationSettings dueSoonDaysBefore={dueSoonDaysBefore} />
       </div>
+      <ReceiptSettingsPanel />
     </>
   );
 }
@@ -5131,6 +5134,7 @@ function OrderDetail({
   };
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
   const [customer, setCustomer] = useState(order.customer);
   const [product, setProduct] = useState(order.product);
   const [amount, setAmount] = useState(String(order.total));
@@ -5193,6 +5197,13 @@ function OrderDetail({
     }
   };
   return (
+    <>
+    {showReceipt && (
+      <ReceiptDialog
+        order={{ id: order.id, customer: order.customer, product: order.product, total: order.total }}
+        close={() => setShowReceipt(false)}
+      />
+    )}
     <Dialog
       open
       onOpenChange={(open) => {
@@ -5399,6 +5410,15 @@ function OrderDetail({
               >
                 Edit
               </Button>
+              {isUuid(order.id) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowReceipt(true)}
+                >
+                  Receipt
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
@@ -5436,6 +5456,7 @@ function OrderDetail({
         )}
       </DialogContent>
     </Dialog>
+    </>
   );
 }
 
