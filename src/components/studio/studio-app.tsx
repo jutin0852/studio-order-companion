@@ -144,24 +144,15 @@ const money = new Intl.NumberFormat("en-NG", {
   currency: "NGN",
   maximumFractionDigits: 0,
 });
-const fallbackTimeZones = [
-  "Africa/Lagos",
-  "America/Los_Angeles",
-  "America/New_York",
-  "Asia/Dubai",
-  "Asia/Kolkata",
-  "Asia/Singapore",
-  "Australia/Sydney",
-  "Europe/London",
-  "Europe/Paris",
-  "Pacific/Auckland",
-  "UTC",
-];
-function supportedTimeZones() {
-  const intl = Intl as typeof Intl & {
-    supportedValuesOf?: (key: "timeZone") => string[];
-  };
-  return intl.supportedValuesOf?.("timeZone") ?? fallbackTimeZones;
+function resolveDeviceTimeZone(fallback: string) {
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!timeZone) return fallback;
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return timeZone;
+  } catch {
+    return fallback;
+  }
 }
 const fmt = (value: number) => money.format(value);
 function dateKey(date: Date) {
@@ -2793,6 +2784,7 @@ function Add({
             required
             id="customer"
             name="customer"
+            maxLength={160}
             placeholder="e.g. Customer name"
             className="mt-2 h-11"
           />
@@ -3015,6 +3007,7 @@ function Add({
           <Textarea
             id="notes"
             name="notes"
+            maxLength={2000}
             rows={3}
             placeholder="Colour, size, delivery details, or anything useful."
             className="mt-2"
@@ -3198,6 +3191,7 @@ function NewProduct({
               <Input
                 required
                 id="product-name"
+                maxLength={160}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="e.g. Linen co-ord set"
@@ -3678,6 +3672,7 @@ function ProductEditor({
               <Input
                 required
                 id="product-name"
+                maxLength={160}
                 value={name}
                 onChange={(event) => {
                   setName(event.target.value);
@@ -4824,7 +4819,6 @@ function SettingsPanel({
 }) {
   const [workingDays, setWorkingDays] = useState(String(settings.workingDays));
   const [reminderTime, setReminderTime] = useState(settings.reminderTime);
-  const [timeZone, setTimeZone] = useState(settings.timeZone);
   const [attentionDaysBefore, setAttentionDaysBefore] = useState(String(settings.attentionDaysBefore));
   const [dueSoonDaysBefore, setDueSoonDaysBefore] = useState(settings.dueSoonDaysBefore);
   const [customReminderDay, setCustomReminderDay] = useState("");
@@ -4833,21 +4827,9 @@ function SettingsPanel({
   const [stalledRemindersEnabled, setStalledRemindersEnabled] = useState(settings.stalledRemindersEnabled);
   const [stalledAfterDays, setStalledAfterDays] = useState(String(settings.stalledAfterDays));
   const [stalledRepeatDays, setStalledRepeatDays] = useState(String(settings.stalledRepeatDays));
-  const [deviceTimeZone, setDeviceTimeZone] = useState("");
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
-  const timeZones = useMemo(() => supportedTimeZones(), []);
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      try {
-        setDeviceTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
-      } catch {
-        setDeviceTimeZone("");
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (isSaving) return;
@@ -4877,13 +4859,7 @@ function SettingsPanel({
       setError("Stalled-order timing must be between 1 and 30 days.");
       return;
     }
-    const selectedTimeZone = timeZone.trim();
-    try {
-      new Intl.DateTimeFormat("en-US", { timeZone: selectedTimeZone });
-    } catch {
-      setError("Enter a valid time zone, such as America/New_York.");
-      return;
-    }
+    const selectedTimeZone = resolveDeviceTimeZone(settings.timeZone);
     setIsSaving(true);
     setError("");
     const nextSettings: Settings = {
@@ -4912,7 +4888,6 @@ function SettingsPanel({
       }
       onSave(nextSettings);
       setWorkingDays(String(days));
-      setTimeZone(selectedTimeZone);
       setSaved(true);
     } catch (saveError) {
       setError(
@@ -4964,52 +4939,6 @@ function SettingsPanel({
               </p>
             </div>
             <div>
-              <Label htmlFor="business-time-zone">Business time zone</Label>
-              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                <Input
-                  id="business-time-zone"
-                  list="studio-time-zones"
-                  required
-                  value={timeZone}
-                  onChange={(event) => {
-                    setTimeZone(event.target.value);
-                    setSaved(false);
-                  }}
-                  aria-describedby="business-time-zone-help"
-                  className="h-11 min-w-0 flex-1"
-                  placeholder="e.g. Europe/London"
-                />
-                <datalist id="studio-time-zones">
-                  {Array.from(new Set([...timeZones, timeZone, deviceTimeZone]))
-                    .filter(Boolean)
-                    .sort()
-                    .map((zone) => (
-                      <option key={zone} value={zone} />
-                    ))}
-                </datalist>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!deviceTimeZone}
-                  onClick={() => {
-                    setTimeZone(deviceTimeZone);
-                    setSaved(false);
-                  }}
-                  className="h-11 shrink-0"
-                >
-                  Use device time zone
-                </Button>
-              </div>
-              <p
-                id="business-time-zone-help"
-                className="mt-1 text-xs leading-5 text-stone-500"
-              >
-                {deviceTimeZone
-                  ? `Order dates and the daily alert time follow this zone. This device is set to ${deviceTimeZone}.`
-                  : "Order dates and the daily alert time follow this zone. Choose an IANA time zone, such as Africa/Lagos."}
-              </p>
-            </div>
-            <div>
               <Label htmlFor="reminder-time">Daily order alert time</Label>
               <Input
                 required
@@ -5023,9 +4952,9 @@ function SettingsPanel({
                 className="mt-2 h-11"
               />
               <p className="mt-1 text-xs leading-5 text-stone-500">
-                Automatic reminders run once a day from this time in your business timezone
-                for orders that meet your reminder rules. Checks run about every minute; the
-                default is 9:00 AM.
+                Reminders use this device’s local time and send only when an order matches
+                your rules. Checks run about once a minute; the default is 9:00 AM. Saving
+                Settings on another device switches the account to that device’s local time.
               </p>
             </div>
             <div className="border-t border-stone-100 pt-5">
@@ -5303,6 +5232,7 @@ function OrderDetail({
               <Label htmlFor="edit-customer">Customer name</Label>
               <Input
                 id="edit-customer"
+                maxLength={160}
                 value={customer}
                 onChange={(event) => setCustomer(event.target.value)}
                 className="mt-2 h-11"
@@ -5312,6 +5242,7 @@ function OrderDetail({
               <Label htmlFor="edit-product">Product</Label>
               <Input
                 id="edit-product"
+                maxLength={160}
                 value={product}
                 onChange={(event) => setProduct(event.target.value)}
                 className="mt-2 h-11"
@@ -5344,6 +5275,7 @@ function OrderDetail({
               <Label htmlFor="edit-notes">Notes</Label>
               <Textarea
                 id="edit-notes"
+                maxLength={2000}
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 rows={3}

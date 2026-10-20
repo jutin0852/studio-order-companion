@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { isStudioImageUrl } from "@/lib/image-url";
 
 type ProductRow = {
   id: string;
@@ -23,11 +24,7 @@ function serializeProduct(row: ProductRow) {
 }
 
 function validImageUrl(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length <= 2_000 &&
-    value.startsWith("https://")
-  );
+  return isStudioImageUrl(value, process.env.CLOUDINARY_CLOUD_NAME);
 }
 
 function isUuid(value: string) {

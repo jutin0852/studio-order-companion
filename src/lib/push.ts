@@ -1,6 +1,7 @@
 import webpush, { type PushSubscription as WebPushSubscription } from "web-push";
 import { db } from "@/lib/db";
 import { canonicalPushEndpoint } from "@/lib/push-endpoint.mjs";
+import { resolveVapidSubject } from "@/lib/vapid-subject";
 export { isAllowedPushEndpoint } from "@/lib/push-endpoint.mjs";
 
 export type StudioPushPayload = {
@@ -28,16 +29,17 @@ export class PushEndpointConflictError extends Error {
 
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-const fallbackVapidSubject = "https://studio-tau-eight-46.vercel.app";
-const configuredVapidSubject = process.env.VAPID_SUBJECT?.trim();
-const vapidSubject = configuredVapidSubject?.startsWith("https://") ? configuredVapidSubject : fallbackVapidSubject;
+const vapidSubject = resolveVapidSubject(process.env);
+const pushEnabled = Boolean(vapidPublicKey && vapidPrivateKey && vapidSubject);
 
-if (vapidPublicKey && vapidPrivateKey) {
-  webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+if (pushEnabled && vapidSubject) {
+  webpush.setVapidDetails(vapidSubject, vapidPublicKey as string, vapidPrivateKey as string);
+} else if (vapidPublicKey && vapidPrivateKey) {
+  console.error("[push] Push is disabled: set VAPID_SUBJECT (or BETTER_AUTH_URL) to an https URL.");
 }
 
 export function isPushConfigured() {
-  return Boolean(vapidPublicKey && vapidPrivateKey);
+  return pushEnabled;
 }
 
 export async function savePushSubscription(userId: string, subscription: IncomingPushSubscription) {

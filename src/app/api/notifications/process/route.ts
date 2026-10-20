@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { processDueNotifications } from "@/lib/notifications";
+import { secretEquals } from "@/lib/secret-equals";
 
 export async function POST(request: Request) {
   const configuredSecret = process.env.CRON_SECRET;
   const suppliedSecret = request.headers.get("x-cron-secret") ?? request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!configuredSecret || suppliedSecret !== configuredSecret) return NextResponse.json({ error: "Not authorized." }, { status: 401 });
+  if (!secretEquals(suppliedSecret, configuredSecret)) return NextResponse.json({ error: "Not authorized." }, { status: 401 });
 
   try {
     return NextResponse.json(await processDueNotifications());

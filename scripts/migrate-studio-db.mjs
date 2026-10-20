@@ -13,7 +13,7 @@ if (!databaseUrl) {
 const pool = new Pool({
   connectionString: databaseUrl,
   max: 2,
-  ssl: databaseUrl.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+  ssl: databaseUrl.includes("neon.tech") && !/[?&]sslmode=/.test(databaseUrl) ? true : undefined,
 });
 
 const migrationsDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "db", "migrations");

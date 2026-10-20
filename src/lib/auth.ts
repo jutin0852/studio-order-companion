@@ -1,43 +1,33 @@
 import { randomBytes } from "node:crypto";
 import { betterAuth } from "better-auth";
+import { buildAllowedHosts, resolveAuthSecret } from "@/lib/auth-config";
 import { sendAuthEmail } from "@/lib/auth-email";
 import { db, ensureUserWorkspace } from "@/lib/db";
 
 const appUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3010";
-const configuredAllowedHosts = process.env.BETTER_AUTH_ALLOWED_HOSTS
-  ?.split(",")
-  .map((host) => host.trim())
-  .filter(Boolean);
-const allowedHosts = Array.from(
-  new Set([
-    new URL(appUrl).host,
-    "localhost:3010",
-    "127.0.0.1:3010",
-    "192.168.1.3:3010",
-    "192.168.1.3.nip.io:3010",
-    ...(configuredAllowedHosts ?? []),
-  ]),
-);
+const allowedHosts = buildAllowedHosts(process.env, appUrl);
 const dynamicBaseUrl = {
   allowedHosts,
   fallback: appUrl,
   protocol: "auto" as const,
 };
-const configuredAuthSecret = process.env.BETTER_AUTH_SECRET;
-const authSecret = configuredAuthSecret ?? randomBytes(32).toString("hex");
+const authSecret = resolveAuthSecret(process.env);
+if (!authSecret.configured) console.error(`[auth] Authentication is disabled. ${authSecret.reason}`);
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const googleConfig = googleClientId && googleClientSecret
   ? { clientId: googleClientId, clientSecret: googleClientSecret }
   : undefined;
 
-export const isAuthConfigured = Boolean(db && configuredAuthSecret);
+export const isAuthConfigured = Boolean(db && authSecret.configured);
 export const isGoogleAuthConfigured = Boolean(googleConfig);
 
 export const auth = betterAuth({
   appName: "Studio",
   baseURL: dynamicBaseUrl,
-  secret: authSecret ?? "studio-auth-not-configured",
+  // When unconfigured, a throwaway secret keeps Better Auth constructible; no
+  // session can validate against it and the auth routes answer 503.
+  secret: authSecret.secret ?? randomBytes(32).toString("hex"),
   // Share the application pool with Better Auth so session lookup and app
   // persistence do not create separate Neon connection pools.
   database: db ?? undefined,

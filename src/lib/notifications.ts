@@ -113,41 +113,50 @@ type ReminderDelivery = {
   payload: Parameters<typeof sendPushToUser>[1];
 };
 
+const CLAIM_TTL = "2 minutes";
+
 async function deliverReminder(reminderInput: ReminderDelivery) {
   if (!db) return { sent: 0, failed: 0, skipped: 1 };
 
-  const client = await db.connect();
+  // Claim the reminder with a single statement instead of a transaction that
+  // stays open while the push is sent: a slow push service must not pin a
+  // pooled connection. A fresh claim, or an already-sent reminder, yields no
+  // row, so concurrent runs cannot double-send.
+  const claim = await db.query<{ id: string }>(
+    `INSERT INTO reminders (business_id, order_id, kind, scheduled_for, dedupe_key, claimed_at)
+     SELECT business_id, $1, $2, now(), $3, now() FROM orders WHERE id = $1
+     ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO UPDATE
+       SET claimed_at = now(), updated_at = now()
+       WHERE reminders.status <> 'sent'
+         AND (reminders.claimed_at IS NULL OR reminders.claimed_at < now() - interval '${CLAIM_TTL}')
+     RETURNING id`,
+    [reminderInput.orderId, reminderInput.kind, reminderInput.dedupeKey],
+  );
+  const reminderId = claim.rows[0]?.id;
+  if (!reminderId) return { sent: 0, failed: 0, skipped: 1 };
+
+  let delivery: Awaited<ReturnType<typeof sendPushToUser>>;
   try {
-    await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [reminderInput.dedupeKey]);
-    const reminder = await client.query<{ id: string; status: string }>(
-      `INSERT INTO reminders (business_id, order_id, kind, scheduled_for, dedupe_key)
-       SELECT business_id, $1, $2, now(), $3 FROM orders WHERE id = $1
-       ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO UPDATE SET updated_at = now()
-       RETURNING id, status`,
-      [reminderInput.orderId, reminderInput.kind, reminderInput.dedupeKey],
-    );
-
-    if (!reminder.rows[0] || reminder.rows[0].status === "sent") {
-      await client.query("COMMIT");
-      return { sent: 0, failed: 0, skipped: 1 };
-    }
-
-    const delivery = await sendPushToUser(reminderInput.userId, reminderInput.payload);
-    if (delivery.sent > 0) {
-      await client.query("UPDATE reminders SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1", [reminder.rows[0].id]);
-    }
-    await client.query("COMMIT");
-    return { sent: delivery.sent, failed: delivery.failed, skipped: delivery.sent === 0 && delivery.failed === 0 ? 1 : 0 };
+    delivery = await sendPushToUser(reminderInput.userId, reminderInput.payload);
   } catch (error) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {
-      // Preserve the original notification error.
-    }
+    await releaseClaim(reminderId);
     throw error;
-  } finally {
-    client.release();
+  }
+
+  if (delivery.sent > 0) {
+    await db.query("UPDATE reminders SET status = 'sent', sent_at = now(), claimed_at = NULL, updated_at = now() WHERE id = $1", [reminderId]);
+  } else {
+    // Nothing was delivered, so let the next run retry immediately.
+    await releaseClaim(reminderId);
+  }
+  return { sent: delivery.sent, failed: delivery.failed, skipped: delivery.sent === 0 && delivery.failed === 0 ? 1 : 0 };
+}
+
+async function releaseClaim(reminderId: string) {
+  try {
+    await db?.query("UPDATE reminders SET claimed_at = NULL, updated_at = now() WHERE id = $1", [reminderId]);
+  } catch {
+    // The claim expires on its own; keep the original delivery error.
   }
 }
 

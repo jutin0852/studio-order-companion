@@ -6,7 +6,9 @@ export const db = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
       max: 5,
-      ssl: databaseUrl.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+      // Neon uses publicly trusted certificates, so keep verification on. An
+      // explicit sslmode in the URL wins; otherwise require TLS for Neon hosts.
+      ssl: databaseUrl.includes("neon.tech") && !/[?&]sslmode=/.test(databaseUrl) ? true : undefined,
     })
   : null;
 

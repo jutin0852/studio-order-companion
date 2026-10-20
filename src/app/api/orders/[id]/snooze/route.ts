@@ -33,7 +33,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       `INSERT INTO order_snoozes (order_id, business_id, snoozed_until)
        VALUES ($1::uuid, $2, $3::date)
        ON CONFLICT (order_id) DO UPDATE SET
-         business_id = EXCLUDED.business_id,
          snoozed_until = EXCLUDED.snoozed_until,
          updated_at = now()
        RETURNING to_char(snoozed_until, 'YYYY-MM-DD') AS snoozed_until`,
