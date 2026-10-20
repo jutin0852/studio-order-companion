@@ -849,7 +849,7 @@ function SummaryOrderHistory({
       monthOrders.filter((order) => {
         const matchesQuery =
           !normalizedQuery ||
-          `${order.customer} ${order.product} ${order.id}`
+          `${order.customer} ${order.product}`
             .toLocaleLowerCase()
             .includes(normalizedQuery);
         return (
@@ -2581,7 +2581,7 @@ function OrderManagementLegacy({
         .filter(
           (order) =>
             !normalizedQuery ||
-            `${order.id} ${order.customer} ${order.product}`
+            `${order.customer} ${order.product}`
               .toLowerCase()
               .includes(normalizedQuery),
         )
@@ -5213,10 +5213,7 @@ function OrderDetail({
       <DialogContent>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[.12em] text-stone-400">
-              Order {order.id}
-            </p>
-            <DialogTitle className="mt-1 text-xl font-bold text-stone-950">
+            <DialogTitle className="text-xl font-bold text-stone-950">
               {editing ? "Edit order" : order.customer}
             </DialogTitle>
             <DialogDescription className="mt-1 text-sm text-stone-500">
@@ -5527,7 +5524,7 @@ function OrderManagement({
             (productFilter === "all" || order.product === productFilter) &&
             (customerFilter === "all" || order.customer === customerFilter) &&
             (!normalizedQuery ||
-              `${order.id} ${order.customer} ${order.product}`
+              `${order.customer} ${order.product}`
                 .toLowerCase()
                 .includes(normalizedQuery))
           );
