@@ -125,7 +125,9 @@ export function ReceiptDialog({ order, close }: { order: OrderForReceipt; close:
     }
   };
 
-  const imageUrl = (receipt: ReceiptSummary, download = false) => `/api/receipts/${encodeURIComponent(receipt.id)}/image${download ? "?download=1" : ""}`;
+  // The version param makes the browser fetch a fresh image once a receipt is voided.
+  const imageUrl = (receipt: ReceiptSummary, download = false) =>
+    `/api/receipts/${encodeURIComponent(receipt.id)}/image?v=${receipt.voided ? "void" : "issued"}${download ? "&download=1" : ""}`;
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) close(); }}>
