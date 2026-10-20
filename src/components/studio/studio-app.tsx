@@ -48,6 +48,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { PushNotificationSettings } from "@/components/studio/push-notification-settings";
+import { ReceiptDialog } from "@/components/studio/receipt-dialog";
+import { ReceiptSettingsPanel } from "@/components/studio/receipt-settings";
 import { uploadImage } from "@/lib/image-upload";
 import { parseMoneyInput } from "@/lib/money";
 
@@ -847,7 +849,7 @@ function SummaryOrderHistory({
       monthOrders.filter((order) => {
         const matchesQuery =
           !normalizedQuery ||
-          `${order.customer} ${order.product} ${order.id}`
+          `${order.customer} ${order.product}`
             .toLocaleLowerCase()
             .includes(normalizedQuery);
         return (
@@ -2579,7 +2581,7 @@ function OrderManagementLegacy({
         .filter(
           (order) =>
             !normalizedQuery ||
-            `${order.id} ${order.customer} ${order.product}`
+            `${order.customer} ${order.product}`
               .toLowerCase()
               .includes(normalizedQuery),
         )
@@ -5107,6 +5109,7 @@ function SettingsPanel({
       <div className="mt-6 max-w-2xl">
         <PushNotificationSettings dueSoonDaysBefore={dueSoonDaysBefore} />
       </div>
+      <ReceiptSettingsPanel />
     </>
   );
 }
@@ -5131,6 +5134,7 @@ function OrderDetail({
   };
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
   const [customer, setCustomer] = useState(order.customer);
   const [product, setProduct] = useState(order.product);
   const [amount, setAmount] = useState(String(order.total));
@@ -5193,6 +5197,13 @@ function OrderDetail({
     }
   };
   return (
+    <>
+    {showReceipt && (
+      <ReceiptDialog
+        order={{ id: order.id, customer: order.customer, product: order.product, total: order.total }}
+        close={() => setShowReceipt(false)}
+      />
+    )}
     <Dialog
       open
       onOpenChange={(open) => {
@@ -5202,10 +5213,7 @@ function OrderDetail({
       <DialogContent>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[.12em] text-stone-400">
-              Order {order.id}
-            </p>
-            <DialogTitle className="mt-1 text-xl font-bold text-stone-950">
+            <DialogTitle className="text-xl font-bold text-stone-950">
               {editing ? "Edit order" : order.customer}
             </DialogTitle>
             <DialogDescription className="mt-1 text-sm text-stone-500">
@@ -5399,6 +5407,15 @@ function OrderDetail({
               >
                 Edit
               </Button>
+              {isUuid(order.id) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowReceipt(true)}
+                >
+                  Receipt
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
@@ -5436,6 +5453,7 @@ function OrderDetail({
         )}
       </DialogContent>
     </Dialog>
+    </>
   );
 }
 
@@ -5506,7 +5524,7 @@ function OrderManagement({
             (productFilter === "all" || order.product === productFilter) &&
             (customerFilter === "all" || order.customer === customerFilter) &&
             (!normalizedQuery ||
-              `${order.id} ${order.customer} ${order.product}`
+              `${order.customer} ${order.product}`
                 .toLowerCase()
                 .includes(normalizedQuery))
           );
