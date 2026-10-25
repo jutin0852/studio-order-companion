@@ -1,33 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Studio: order companion for online sellers
 
-## Getting Started
+[![CI](https://github.com/jutin0852/studio-order-companion/actions/workflows/ci.yml/badge.svg)](https://github.com/jutin0852/studio-order-companion/actions/workflows/ci.yml)
 
-First, run the development server:
+Order tracking, reminders and light business management for small online sellers.
+Installable as a phone app (PWA), with push notifications for due orders.
+
+**Live:** https://studio-tau-eight-46.vercel.app
+
+## Features
+- Orders with due dates, status tracking, snoozing and idempotent creation (no duplicate orders on retry)
+- Product catalogue with images, and expense tracking
+- Receipts in naira, with amount in words, voiding and shareable receipt images
+- Web Push reminders (due soon, due today, overdue) with per-device opt-in and daily de-duplication
+- Email/password and Google sign-in, with password recovery
+
+## Stack
+Next.js (App Router, route handlers) · React · TypeScript · PostgreSQL on Neon (`pg`, SQL migrations in `db/migrations`) ·
+Better Auth · Web Push (VAPID) · Cloudinary (signed uploads) · Resend (email) · Cloudflare Worker cron
+
+## Architecture
+- `src/app/api/*`: REST-style route handlers for orders, products, expenses, receipts, settings, uploads and notifications
+- `db/migrations`: ordered SQL migrations (domain schema, push subscriptions, idempotency, snoozes, reminder claims, receipts)
+- `workers/notification-scheduler`: Cloudflare Worker that calls the protected reminder processor every 15 minutes
+- `src/lib`: framework-independent logic (validation, field limits, reminder-day maths, receipts, secret comparison), unit-tested
+
+## Testing
+Unit tests use the Node built-in test runner and cover the logic most likely to cause bugs:
+request body size limits, field-length limits, auth/host configuration (production excludes dev hosts), constant-time secret comparison,
+push endpoint validation, image URL validation, reminder-day calculation, naira amount-in-words, receipts, and the scheduler worker.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm test
+npm run lint
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+CI (GitHub Actions) runs lint, tests and a production build on every push and pull request.
+Not covered yet: browser end-to-end tests and API integration tests against a database.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Getting started
+```bash
+npm ci
+cp .env.example .env.local   # then fill in the values
+npm run db:migrate
+npm run dev
+```
 
 ## Deployment
 
@@ -49,7 +65,7 @@ Google sign-in is enabled when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are
 http://localhost:3010/api/auth/callback/google
 ```
 
-For phone testing over the local network, use the domain-style LAN host `http://192.168.1.3.nip.io:3010` and allow `http://192.168.1.3.nip.io:3010/api/auth/callback/google` in Google Cloud. Keep `BETTER_AUTH_ALLOWED_HOSTS` in sync with the LAN host.
+For phone testing over the local network, use a domain-style LAN host (for example one built with nip.io) `http://<your-lan-host>:3010` and allow `http://<your-lan-host>:3010/api/auth/callback/google` in Google Cloud. Keep `BETTER_AUTH_ALLOWED_HOSTS` in sync with the LAN host.
 
 Email verification is intentionally optional. Password recovery sends through Resend when `RESEND_API_KEY` and `RESEND_FROM_EMAIL` are configured; in local development, the reset link is logged for testing when those values are absent.
 
@@ -88,7 +104,7 @@ trigger to call the processor every 15 minutes. Set its `APP_URL` secret to the
 deployed HTTPS Studio URL and its `CRON_SECRET` secret to the same value used by
 the Studio deployment, then run `npx wrangler deploy` from that directory.
 
-The phone must use an HTTPS origin for web push. `localhost` is allowed for development, but a LAN HTTP address such as `192.168.1.3.nip.io` will show the user how to fix the secure-context requirement instead of silently failing.
+The phone must use an HTTPS origin for web push. `localhost` is allowed for development, but a LAN HTTP address such as `<your-lan-host>` will show the user how to fix the secure-context requirement instead of silently failing.
 
 ## Image storage setup
 
