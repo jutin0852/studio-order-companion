@@ -32,6 +32,22 @@ export const auth = betterAuth({
   // persistence do not create separate Neon connection pools.
   database: db ?? undefined,
   trustedOrigins: [appUrl, ...allowedHosts.map((host) => `http://${host}`)],
+  // Counts live in the database (migration 0009) so limits hold across serverless
+  // instances. Off in local development unless AUTH_RATE_LIMIT=on, so repeated
+  // sign-ins while building do not lock you out.
+  rateLimit: {
+    enabled: process.env.NODE_ENV === "production" || process.env.AUTH_RATE_LIMIT === "on",
+    storage: "database",
+    window: 60,
+    max: 100,
+    customRules: {
+      "/sign-in/email": { window: 60, max: 5 },
+      "/sign-up/email": { window: 3_600, max: 10 },
+      "/request-password-reset": { window: 3_600, max: 5 },
+      "/forget-password": { window: 3_600, max: 5 },
+      "/reset-password": { window: 3_600, max: 10 },
+    },
+  },
   databaseHooks: {
     user: {
       create: {

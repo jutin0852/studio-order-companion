@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
 import { FIELD_LIMITS, optionalText, requiredText } from "@/lib/field-limits";
 import { sendPushToUser } from "@/lib/push";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 const statuses = new Set(["not_started", "in_progress", "ready", "delivered"]);
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -40,6 +42,8 @@ function serializeOrder(order: OrderRow) {
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to update orders." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Order storage is not configured yet." }, { status: 503 });
 
   const body = await request.json().catch(() => null) as {
@@ -133,6 +137,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to delete orders." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Order storage is not configured yet." }, { status: 503 });
 
   try {

@@ -2,6 +2,8 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 type SettingsRow = {
   working_days: number;
@@ -61,6 +63,8 @@ async function getSession() {
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "You must be signed in to view settings." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.read);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Settings storage is not configured yet." }, { status: 503 });
 
   try {
@@ -84,6 +88,8 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "You must be signed in to update settings." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Settings storage is not configured yet." }, { status: 503 });
 
   const body = await request.json().catch(() => null) as SettingsInput | null;

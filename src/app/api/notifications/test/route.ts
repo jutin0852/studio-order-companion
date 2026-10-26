@@ -2,10 +2,14 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { isPushConfigured, sendPushToUser } from "@/lib/push";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 export async function POST() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to test notifications." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.pushTest);
+  if (limited) return limited;
   if (!isPushConfigured()) return NextResponse.json({ error: "Push notifications are not configured on the server yet." }, { status: 503 });
 
   try {

@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
 import { isStudioImageUrl } from "@/lib/image-url";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 type ProductRow = {
   id: string;
@@ -34,6 +36,8 @@ async function getSession() {
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "You must be signed in to view products." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.read);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Product storage is not configured yet." }, { status: 503 });
 
   try {
@@ -54,6 +58,8 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "You must be signed in to create a product." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Product storage is not configured yet." }, { status: 503 });
 
   const body = await request.json().catch(() => null) as { name?: string; price?: number; image?: string | null; archived?: boolean } | null;

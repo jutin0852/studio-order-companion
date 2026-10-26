@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
 import { isStudioImageUrl } from "@/lib/image-url";
 import { cleanAddress, cleanHandle, cleanPhone, DEFAULT_BRAND_COLOR, isHexColor } from "@/lib/receipts";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 type SettingsRow = {
   business_name: string;
@@ -50,6 +52,8 @@ async function readSettings(businessId: string) {
 export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to view receipt settings." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.read);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Receipt storage is not configured yet." }, { status: 503 });
 
   try {
@@ -63,6 +67,8 @@ export async function GET() {
 export async function PUT(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to save receipt settings." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Receipt storage is not configured yet." }, { status: 503 });
 
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;

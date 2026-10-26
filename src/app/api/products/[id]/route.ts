@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
 import { isStudioImageUrl } from "@/lib/image-url";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 type ProductRow = {
   id: string;
@@ -49,6 +51,8 @@ export async function PATCH(
       { status: 503 },
     );
 
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   const productId = (await params).id;
   if (!isUuid(productId))
     return NextResponse.json(
@@ -164,6 +168,8 @@ export async function DELETE(
       { status: 503 },
     );
 
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   const productId = (await params).id;
   if (!isUuid(productId))
     return NextResponse.json(
