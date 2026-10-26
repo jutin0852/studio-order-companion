@@ -12,7 +12,6 @@ import { Metric, PageHeader } from "./ui";
 export function Today({
   today,
   ownerName,
-  dueToday,
   attention,
   attentionDaysBefore,
   overdueGraceDays,
@@ -26,7 +25,6 @@ export function Today({
 }: {
   today: string;
   ownerName?: string;
-  dueToday: Order[];
   attention: Order[];
   attentionDaysBefore: number;
   overdueGraceDays: number;
