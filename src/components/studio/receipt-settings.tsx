@@ -106,9 +106,9 @@ export function ReceiptSettingsPanel() {
       <Card className="ring-0">
         <CardContent className="space-y-5 p-5">
           <div>
-            <h2 className="text-base font-bold text-stone-950">Receipts</h2>
+            <h2 className="text-base font-bold text-stone-950">Receipt details</h2>
             <p className="mt-1 text-xs leading-5 text-stone-500">
-              How receipts look for {settings.businessName}. Everything below is optional and only shows on the receipt when filled in.
+              Shown on your receipts. All optional, and anything you leave blank is left off.
             </p>
           </div>
 
