@@ -29,13 +29,19 @@ Unit tests use the Node built-in test runner and cover the logic most likely to 
 request body size limits, field-length limits, auth/host configuration (production excludes dev hosts), constant-time secret comparison,
 push endpoint validation, image URL validation, reminder-day calculation, naira amount-in-words, receipts, and the scheduler worker.
 
+API tests (Vitest) run the real route handlers and SQL against an in-memory Postgres (PGlite) with every migration applied.
+Only sign-in and push delivery are replaced. They cover orders (including replay protection and cross-business privacy), products,
+receipts and numbering, notification preferences, rate limiting and the random check-in scheduler.
+
 ```bash
-npm test
+npm test          # unit tests
+npm run test:api  # API tests against an in-memory database
+npm run test:all  # both
 npm run lint
 ```
 
-CI (GitHub Actions) runs lint, tests and a production build on every push and pull request.
-Not covered yet: browser end-to-end tests and API integration tests against a database.
+CI (GitHub Actions) runs lint, both test suites and a production build on every push and pull request.
+Not covered yet: browser end-to-end tests.
 
 ## Getting started
 ```bash

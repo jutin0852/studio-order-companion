@@ -11,7 +11,9 @@
     "auth:migrate": "npx auth@latest migrate",
     "db:migrate": "node --env-file=.env.local scripts/migrate-studio-db.mjs",
     "db:verify": "node --env-file=.env.local scripts/verify-studio-db.mjs",
-    "notifications:process": "node --env-file=.env.local scripts/process-order-notifications.mjs"
+    "notifications:process": "node --env-file=.env.local scripts/process-order-notifications.mjs",
+    "test:api": "vitest run",
+    "test:all": "npm test && npm run test:api"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -27,8 +29,9 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.12",
     "@tailwindcss/turbopack": "^4",
-    "@types/node": "^20",
+    "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -38,6 +41,7 @@
     "eslint-config-next": "16.4.0",
     "shadcn": "^4.21.4",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^5.0.5"
   }
 }

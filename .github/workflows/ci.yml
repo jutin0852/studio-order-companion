@@ -17,6 +17,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - run: npm run test:api
       - run: npm run build
         env:
           DATABASE_URL: postgres://placeholder:placeholder@localhost:5432/placeholder
