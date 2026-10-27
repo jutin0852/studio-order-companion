@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Bell, Check, LoaderCircle, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { enablePush } from "@/lib/push-client";
 
 type NotificationPreferences = {
   pushEnabled: boolean;
@@ -21,14 +22,6 @@ type PreferenceKey = keyof NotificationPreferences;
 type BooleanPreferenceKey = { [Key in PreferenceKey]: NotificationPreferences[Key] extends boolean ? Key : never }[PreferenceKey];
 
 const defaultPreferences: NotificationPreferences = { pushEnabled: true, dueTodayEnabled: true, dueSoonEnabled: true, overdueEnabled: true, dailyDigestEnabled: false, randomAlertsEnabled: true, randomAlertsPerDay: 3, awakeStart: "08:00", awakeEnd: "21:00" };
-const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-
-function urlBase64ToUint8Array(value: string) {
-  const padding = "=".repeat((4 - (value.length % 4)) % 4);
-  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map((character) => character.charCodeAt(0)));
-}
 
 export function PushNotificationSettings({ dueSoonDaysBefore }: { dueSoonDaysBefore: number[] }) {
   const [preferences, setPreferences] = useState(defaultPreferences);
@@ -84,17 +77,11 @@ export function PushNotificationSettings({ dueSoonDaysBefore }: { dueSoonDaysBef
   };
 
   const enable = async () => {
-    if (!vapidPublicKey) { setError("Push notifications are not configured on the server yet."); return; }
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") throw new Error(permission === "denied" ? "Notifications are blocked in this browser. Allow them in browser settings, then try again." : "Notification permission was not granted.");
-      const registration = await navigator.serviceWorker.ready;
-      const nextSubscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) });
-      const response = await fetch("/api/notifications/subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(nextSubscription) });
-      if (!response.ok) throw new Error("The notification device could not be saved.");
+      const nextSubscription = await enablePush();
       setSubscription(nextSubscription);
       await updatePreference("pushEnabled", true);
       setMessage("Notifications are on. Studio will tell you what needs attention.");

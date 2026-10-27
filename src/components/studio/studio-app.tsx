@@ -13,6 +13,8 @@ import { Profile } from "./profile";
 import { ReceiptsSettingsPage, SettingsHome, SettingsPanel } from "./settings";
 import { BusinessSummary, SummaryOrderHistory } from "./summary";
 import { SetupGuide, WelcomeDialog } from "./onboarding";
+import { PushPrompt } from "./push-prompt";
+import { usePushPrompt } from "./use-push-prompt";
 import { setupComplete, setupSteps } from "./onboarding-steps";
 import { Today } from "./today";
 import { useOnboarding } from "./use-onboarding";
@@ -65,13 +67,15 @@ export default function Home({
   const { actionMessage, setActionMessage } = messages;
   const { orders, products, snoozed, expenses, settings, setSettings, businessProfile, setBusinessProfile, hydrated, serverLoaded } = data;
   const onboarding = useOnboarding({ userId, serverLoaded, hasData: orders.length > 0 || products.length > 0 });
+  const pushPrompt = usePushPrompt({ userId, onEnabled: () => setActionMessage("Notifications are on.") });
   const steps = setupSteps({
     hasProduct: products.length > 0,
     hasOrder: orders.length > 0,
-    remindersOn: onboarding.remindersOn,
+    remindersOn: pushPrompt.subscribed,
     hasLogo: Boolean(businessProfile.logo),
   });
   const { dueOptions, editingProduct, activeProducts, selected, active, attentionOrders, selectedOrder } = derived;
+  const guideVisible = onboarding.ready && !onboarding.guideHidden && !setupComplete(steps);
   const { openAdd, openNewProduct, openEditProduct, saveProductRecord, toggleProductArchive, deleteProduct, advance, saveOrder, deleteOrder, toggleSnooze, addExpense, addOrder, saveBusinessProfile, replaceLogo, changeSummaryMonth } = actions;
   if (!hydrated) return <StudioLoading />;
   return (
@@ -124,14 +128,28 @@ export default function Home({
                 toggleSnooze={toggleSnooze}
                 selectOrder={(order) => setSelectedOrderId(order.id)}
                 guide={
-                  onboarding.ready && !onboarding.guideHidden && !setupComplete(steps) ? (
-                    <SetupGuide
-                      steps={steps}
-                      onNavigate={navigate}
-                      onHide={onboarding.hideGuide}
-                      onShowWelcome={onboarding.openWelcome}
-                    />
-                  ) : undefined
+                  <>
+                    {guideVisible && (
+                      <SetupGuide
+                        steps={steps}
+                        onNavigate={navigate}
+                        onHide={onboarding.hideGuide}
+                        onShowWelcome={onboarding.openWelcome}
+                        inlineActions={pushPrompt.state === "enable" ? { reminders: pushPrompt.enable } : undefined}
+                        busy={pushPrompt.busy}
+                        error={pushPrompt.error}
+                      />
+                    )}
+                    {!guideVisible && pushPrompt.state !== "hidden" && (
+                      <PushPrompt
+                        state={pushPrompt.state}
+                        busy={pushPrompt.busy}
+                        error={pushPrompt.error}
+                        onEnable={pushPrompt.enable}
+                        onDismiss={pushPrompt.dismiss}
+                      />
+                    )}
+                  </>
                 }
               />
             )}{" "}

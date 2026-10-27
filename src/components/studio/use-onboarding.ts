@@ -29,12 +29,10 @@ function write(userId: string, value: StoredOnboarding) {
 export function useOnboarding({ userId, serverLoaded, hasData }: { userId: string; serverLoaded: boolean; hasData: boolean }) {
   const [state, setState] = useState<StoredOnboarding | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
-  const [remindersOn, setRemindersOn] = useState(false);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       setState(read(userId));
-      setRemindersOn(typeof Notification !== "undefined" && Notification.permission === "granted");
     });
     return () => window.cancelAnimationFrame(frame);
   }, [userId]);
@@ -74,6 +72,5 @@ export function useOnboarding({ userId, serverLoaded, hasData }: { userId: strin
     guideHidden: state?.guideHidden ?? true,
     hideGuide: () => update({ guideHidden: true }),
     showGuide: () => update({ guideHidden: false }),
-    remindersOn,
   };
 }
