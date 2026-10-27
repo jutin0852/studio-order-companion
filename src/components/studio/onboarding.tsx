@@ -4,18 +4,25 @@ import { Bell, Check, ClipboardList, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { completedSetupSteps, nextSetupStep, type SetupStep } from "./onboarding-steps";
+import { completedSetupSteps, nextSetupStep, type SetupStep, type SetupStepId } from "./onboarding-steps";
 
 export function SetupGuide({
   steps,
   onNavigate,
   onHide,
   onShowWelcome,
+  inlineActions,
+  busy = false,
+  error = "",
 }: {
   steps: SetupStep[];
   onNavigate: (href: string) => void;
   onHide: () => void;
   onShowWelcome: () => void;
+  // Steps that can be finished right here instead of opening another screen.
+  inlineActions?: Partial<Record<SetupStepId, () => void>>;
+  busy?: boolean;
+  error?: string;
 }) {
   const done = completedSetupSteps(steps);
   const next = nextSetupStep(steps);
@@ -64,7 +71,8 @@ export function SetupGuide({
                     type="button"
                     size="sm"
                     variant={isNext ? "default" : "outline"}
-                    onClick={() => onNavigate(step.href)}
+                    disabled={busy && Boolean(inlineActions?.[step.id])}
+                    onClick={() => (inlineActions?.[step.id] ?? (() => onNavigate(step.href)))()}
                     className={isNext ? "bg-stone-950 text-white hover:bg-stone-700" : undefined}
                   >
                     {step.actionLabel}
@@ -74,6 +82,7 @@ export function SetupGuide({
             );
           })}
         </ol>
+        {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{error}</p>}
         <button type="button" onClick={onShowWelcome} className="text-xs font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
           How does Studio work?
         </button>
