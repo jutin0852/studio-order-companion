@@ -9,7 +9,7 @@ export type StudioPushPayload = {
   body: string;
   url?: string;
   tag?: string;
-  kind?: "test" | "order_status" | "due_soon" | "due_today" | "overdue" | "stalled" | "daily_digest";
+  kind?: "test" | "order_status" | "due_soon" | "due_today" | "overdue" | "stalled" | "daily_digest" | "random_nudge";
 };
 
 type IncomingPushSubscription = WebPushSubscription & { user_agent?: string | null };

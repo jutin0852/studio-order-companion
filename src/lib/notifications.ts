@@ -1,5 +1,15 @@
 import { db } from "@/lib/db";
 import { sendPushToUser } from "@/lib/push";
+import {
+  buildNudge,
+  DEFAULT_ALERTS_PER_DAY,
+  DEFAULT_AWAKE_END,
+  DEFAULT_AWAKE_START,
+  dueSlotIndex,
+  isValidAwakeWindow,
+  minutesFromTime,
+  randomAlertSlots,
+} from "@/lib/random-alerts";
 import { isDueSoonDay } from "@/lib/reminder-days";
 
 type NotificationOrder = {
@@ -24,6 +34,10 @@ type NotificationOrder = {
   reminder_time: string;
   timezone: string;
   snoozed_until: string | null;
+  random_alerts_enabled: boolean;
+  random_alerts_per_day: number;
+  awake_start: string;
+  awake_end: string;
 };
 
 function localDateKey(now: Date, timeZone: string) {
@@ -109,7 +123,7 @@ type ReminderDelivery = {
   dedupeKey: string;
   orderId: string;
   userId: string;
-  kind: ReminderKind | "daily_digest";
+  kind: ReminderKind | "daily_digest" | "random_nudge";
   payload: Parameters<typeof sendPushToUser>[1];
 };
 
@@ -184,7 +198,11 @@ export async function processDueNotifications(now = new Date()) {
             COALESCE(bs.stalled_repeat_days, 2) AS stalled_repeat_days,
             COALESCE(np.reminder_time, bs.reminder_time, '09:00')::text AS reminder_time,
             COALESCE(bs.timezone, 'Africa/Lagos') AS timezone,
-            to_char(os.snoozed_until, 'YYYY-MM-DD') AS snoozed_until
+            to_char(os.snoozed_until, 'YYYY-MM-DD') AS snoozed_until,
+            COALESCE(np.random_alerts_enabled, true) AS random_alerts_enabled,
+            COALESCE(np.random_alerts_per_day, 3)::int AS random_alerts_per_day,
+            COALESCE(np.awake_start, '08:00')::text AS awake_start,
+            COALESCE(np.awake_end, '21:00')::text AS awake_end
      FROM orders o
      JOIN businesses b ON b.id = o.business_id
      LEFT JOIN notification_preferences np ON np.user_id = b.owner_user_id
@@ -257,5 +275,62 @@ export async function processDueNotifications(now = new Date()) {
     skipped += delivery.skipped;
   }
 
-  return { processed, sent, failed, skipped };
+  const random = await processRandomAlerts(result.rows, now);
+  return {
+    processed: processed + random.processed,
+    sent: sent + random.sent,
+    failed: failed + random.failed,
+    skipped: skipped + random.skipped,
+  };
+}
+
+// A few nudges a day at unpredictable times while the owner is awake. Today's
+// times are derived from the user and date, so this stateless once-a-minute run
+// needs nothing stored; the reminder dedupe key stops a slot firing twice.
+async function processRandomAlerts(rows: NotificationOrder[], now: Date) {
+  const totals = { processed: 0, sent: 0, failed: 0, skipped: 0 };
+  const ordersByUser = new Map<string, NotificationOrder[]>();
+  for (const row of rows) ordersByUser.set(row.user_id, [...(ordersByUser.get(row.user_id) ?? []), row]);
+
+  for (const [userId, orders] of ordersByUser) {
+    const preferences = orders[0];
+    if (!preferences.push_enabled || !preferences.random_alerts_enabled) continue;
+
+    const timeZone = validTimeZoneOrDefault(preferences.timezone);
+    const today = localDateKey(now, timeZone);
+    const awakeFits = isValidAwakeWindow(preferences.awake_start, preferences.awake_end);
+    const startMinutes = minutesFromTime(awakeFits ? preferences.awake_start : DEFAULT_AWAKE_START) as number;
+    const endMinutes = minutesFromTime(awakeFits ? preferences.awake_end : DEFAULT_AWAKE_END) as number;
+    const slots = randomAlertSlots({
+      userId,
+      date: today,
+      count: preferences.random_alerts_per_day || DEFAULT_ALERTS_PER_DAY,
+      startMinutes,
+      endMinutes,
+    });
+    const slotIndex = dueSlotIndex(slots, localMinutes(now, timeZone));
+    if (slotIndex === null) continue;
+
+    const nudge = buildNudge(orders, today, slotIndex);
+    if (!nudge) continue;
+    const dedupeKey = `random_nudge:${userId}:${today}:${slotIndex}`;
+    const delivery = await deliverReminder({
+      dedupeKey,
+      orderId: nudge.orderId,
+      userId,
+      kind: "random_nudge",
+      payload: {
+        title: nudge.title,
+        body: nudge.body,
+        url: `/orders?order=${encodeURIComponent(nudge.orderId)}`,
+        tag: dedupeKey,
+        kind: "random_nudge",
+      },
+    });
+    totals.processed += 1;
+    totals.sent += delivery.sent;
+    totals.failed += delivery.failed;
+    totals.skipped += delivery.skipped;
+  }
+  return totals;
 }
