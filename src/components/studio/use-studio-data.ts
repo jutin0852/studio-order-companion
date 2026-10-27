@@ -19,6 +19,9 @@ export function useStudioData({ userId, initialUserName, ui, messages }: { userI
     ownerName: initialUserName ?? undefined,
   });
   const [hydrated, setHydrated] = useState(false);
+  // True once the server has answered (or failed to), so first-run checks never
+  // mistake "not loaded yet" for "nothing here".
+  const [serverLoaded, setServerLoaded] = useState(false);
   const productImagesRef = useRef<string[]>([]);
   const businessLogoRef = useRef<string | undefined>(undefined);
   const pendingOrderSyncRef = useRef(new Set<string>());
@@ -132,6 +135,9 @@ export function useStudioData({ userId, initialUserName, ui, messages }: { userI
       })
       .catch(() => {
         // Keep the local workspace usable when the database is temporarily unavailable.
+      })
+      .finally(() => {
+        if (!cancelled) setServerLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -245,5 +251,5 @@ export function useStudioData({ userId, initialUserName, ui, messages }: { userI
     businessProfile.logo,
     storageKey,
   ]);
-  return { orders, setOrders, products, setProducts, snoozed, setSnoozed, expenses, setExpenses, settings, setSettings, businessProfile, setBusinessProfile, hydrated };
+  return { serverLoaded, orders, setOrders, products, setProducts, snoozed, setSnoozed, expenses, setExpenses, settings, setSettings, businessProfile, setBusinessProfile, hydrated };
 }

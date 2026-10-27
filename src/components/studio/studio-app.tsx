@@ -12,7 +12,10 @@ import { ProductCatalog, ProductEditor } from "./products";
 import { Profile } from "./profile";
 import { ReceiptsSettingsPage, SettingsHome, SettingsPanel } from "./settings";
 import { BusinessSummary, SummaryOrderHistory } from "./summary";
+import { SetupGuide, WelcomeDialog } from "./onboarding";
+import { setupComplete, setupSteps } from "./onboarding-steps";
 import { Today } from "./today";
+import { useOnboarding } from "./use-onboarding";
 import { useStudioUi } from "./use-studio-ui";
 import { useStudioRouting } from "./use-studio-routing";
 import { useActionMessage } from "./use-action-message";
@@ -60,7 +63,14 @@ export default function Home({
   const { today, summaryMonth, filter, setFilter, custom, setCustom, productId, setProductId, saveProduct, setSaveProduct, message, savedOrderConfirmation, setSavedOrderConfirmation, setSelectedOrderId } = ui;
   const { view, navigate, setView } = routing;
   const { actionMessage, setActionMessage } = messages;
-  const { orders, products, snoozed, expenses, settings, setSettings, businessProfile, setBusinessProfile, hydrated } = data;
+  const { orders, products, snoozed, expenses, settings, setSettings, businessProfile, setBusinessProfile, hydrated, serverLoaded } = data;
+  const onboarding = useOnboarding({ userId, serverLoaded, hasData: orders.length > 0 || products.length > 0 });
+  const steps = setupSteps({
+    hasProduct: products.length > 0,
+    hasOrder: orders.length > 0,
+    remindersOn: onboarding.remindersOn,
+    hasLogo: Boolean(businessProfile.logo),
+  });
   const { dueOptions, editingProduct, activeProducts, selected, active, attentionOrders, selectedOrder } = derived;
   const { openAdd, openNewProduct, openEditProduct, saveProductRecord, toggleProductArchive, deleteProduct, advance, saveOrder, deleteOrder, toggleSnooze, addExpense, addOrder, saveBusinessProfile, replaceLogo, changeSummaryMonth } = actions;
   if (!hydrated) return <StudioLoading />;
@@ -113,6 +123,16 @@ export default function Home({
                 snoozed={snoozed}
                 toggleSnooze={toggleSnooze}
                 selectOrder={(order) => setSelectedOrderId(order.id)}
+                guide={
+                  onboarding.ready && !onboarding.guideHidden && !setupComplete(steps) ? (
+                    <SetupGuide
+                      steps={steps}
+                      onNavigate={navigate}
+                      onHide={onboarding.hideGuide}
+                      onShowWelcome={onboarding.openWelcome}
+                    />
+                  ) : undefined
+                }
               />
             )}{" "}
             {view === "orders" && (
@@ -239,6 +259,7 @@ export default function Home({
           </section>
         </div>
         <MobileNav view={view} setView={setView} onAdd={openAdd} />
+        <WelcomeDialog open={onboarding.welcomeOpen} onClose={onboarding.closeWelcome} />
         {selectedOrder && (
           <OrderDetail
             order={selectedOrder}

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Package, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +23,7 @@ export function Today({
   snoozed,
   toggleSnooze,
   selectOrder,
+  guide,
 }: {
   today: string;
   ownerName?: string;
@@ -35,6 +37,7 @@ export function Today({
   snoozed: Record<string, string>;
   toggleSnooze: (id: string) => void;
   selectOrder: (order: Order) => void;
+  guide?: ReactNode;
 }) {
   const ready = active.filter((order) => order.status === "ready");
   const attentionIds = new Set(attention.map((order) => order.id));
@@ -53,6 +56,7 @@ export function Today({
           </Button>
         }
       />
+      {guide}
       <section
         aria-label="Order overview"
         className="homepage-metrics grid grid-cols-3 gap-2 sm:gap-4"
