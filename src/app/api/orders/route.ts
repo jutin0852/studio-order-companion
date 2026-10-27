@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
 import { FIELD_LIMITS, optionalText, requiredText } from "@/lib/field-limits";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 const statuses = new Set(["not_started", "in_progress", "ready", "delivered"]);
 
@@ -43,6 +45,8 @@ async function getBusinessId(userId: string, userName?: string | null) {
 export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to view orders." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.read);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Order storage is not configured yet." }, { status: 503 });
 
   try {
@@ -63,6 +67,8 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to add an order." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Order storage is not configured yet." }, { status: 503 });
 
   const body = await request.json().catch(() => null) as {

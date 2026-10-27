@@ -2,6 +2,8 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 type ExpenseRow = { id: string; label: string; amount: string | number; occurred_on: string; notes: string | null };
 
@@ -16,6 +18,8 @@ async function getSession() {
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "You must be signed in to view expenses." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.read);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Expense storage is not configured yet." }, { status: 503 });
 
   try {
@@ -36,6 +40,8 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "You must be signed in to add an expense." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Expense storage is not configured yet." }, { status: 503 });
 
   const body = await request.json().catch(() => null) as { label?: string; amount?: number; date?: string; notes?: string } | null;

@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { createCloudinarySignature, getCloudinaryConfig } from "@/lib/cloudinary";
 import { readBodyWithinLimit } from "@/lib/read-body-with-limit.mjs";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 const MAX_UPLOAD_BYTES = 2_000_000;
 const MAX_MULTIPART_BYTES = MAX_UPLOAD_BYTES + 32_000;
@@ -12,6 +14,8 @@ const allowedCategories = new Set(["products", "logos"]);
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to upload an image." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.upload);
+  if (limited) return limited;
 
   const config = getCloudinaryConfig();
   if (!config) return NextResponse.json({ error: "Cloudinary image storage is not configured yet." }, { status: 503 });

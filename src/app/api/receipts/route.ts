@@ -5,6 +5,8 @@ import { db, ensureUserWorkspace } from "@/lib/db";
 import { nairaInWords } from "@/lib/naira-words";
 import { DEFAULT_BRAND_COLOR, isPaymentMethod, RECEIPT_LIMITS, type ReceiptBranding } from "@/lib/receipts";
 import { RECEIPT_COLUMNS, serializeReceipt, type ReceiptRow } from "@/lib/receipts-db";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -19,6 +21,8 @@ function text(value: unknown, max: number) {
 export async function GET(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to view receipts." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.read);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Receipt storage is not configured yet." }, { status: 503 });
 
   const orderId = new URL(request.url).searchParams.get("orderId");
@@ -39,6 +43,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to create a receipt." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Receipt storage is not configured yet." }, { status: 503 });
 
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;

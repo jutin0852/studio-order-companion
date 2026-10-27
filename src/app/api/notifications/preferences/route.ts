@@ -2,6 +2,8 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 import {
   DEFAULT_ALERTS_PER_DAY,
   DEFAULT_AWAKE_END,
@@ -71,6 +73,8 @@ async function getUser() {
 export async function GET() {
   const session = await getUser();
   if (!session) return NextResponse.json({ error: "You must be signed in to view notification preferences." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.read);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Notification storage is not configured yet." }, { status: 503 });
 
   try {
@@ -87,6 +91,8 @@ const bool = (value: unknown) => (typeof value === "boolean" ? value : null);
 export async function PATCH(request: Request) {
   const session = await getUser();
   if (!session) return NextResponse.json({ error: "You must be signed in to update notification preferences." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   if (!db) return NextResponse.json({ error: "Notification storage is not configured yet." }, { status: 503 });
   const body = await request.json().catch(() => null) as Partial<Record<keyof Preferences, unknown>> | null;
 

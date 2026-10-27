@@ -2,6 +2,8 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { isAllowedPushEndpoint, PushEndpointConflictError, removePushSubscription, savePushSubscription } from "@/lib/push";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
 type SubscriptionBody = {
   endpoint?: string;
@@ -20,6 +22,8 @@ function isValidSubscription(body: SubscriptionBody | null): body is Required<Pi
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to enable notifications." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   const body = await request.json().catch(() => null) as SubscriptionBody | null;
   if (!isValidSubscription(body)) return NextResponse.json({ error: "That push subscription is not valid." }, { status: 400 });
 
@@ -42,6 +46,8 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to disable notifications." }, { status: 401 });
+  const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
+  if (limited) return limited;
   const body = await request.json().catch(() => null) as { endpoint?: string } | null;
   if (!isAllowedPushEndpoint(body?.endpoint)) return NextResponse.json({ error: "A supported push endpoint is required." }, { status: 400 });
 
