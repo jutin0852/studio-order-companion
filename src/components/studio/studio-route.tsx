@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import StudioApp, { StudioLoading } from "@/components/studio/studio-app";
+import OfflineRecovery from "@/components/studio/offline-recovery";
 import { AuthSetupNotice } from "@/components/auth/auth-form";
 import { auth, isAuthConfigured } from "@/lib/auth";
 
@@ -24,7 +25,12 @@ async function ProtectedStudio({
 }) {
   if (!isAuthConfigured) return <AuthSetupNotice />;
 
-  const session = await auth.api.getSession({ headers: await headers() });
+  let session;
+  try {
+    session = await auth.api.getSession({ headers: await headers() });
+  } catch {
+    return <OfflineRecovery />;
+  }
   if (!session) redirect("/sign-in");
 
   return (
