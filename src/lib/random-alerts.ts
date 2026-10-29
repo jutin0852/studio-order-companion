@@ -23,7 +23,7 @@ export function isValidAwakeWindow(start: string, end: string) {
   return from !== null && to !== null && to - from >= MIN_AWAKE_MINUTES;
 }
 
-// Deterministic per user and day, so a stateless once-a-minute scheduler always
+// Deterministic per user and day, so a stateless scheduler always
 // agrees on today's alert times without storing them.
 function randoms(seed: string, count: number) {
   const digest = createHash("sha256").update(seed).digest();

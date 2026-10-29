@@ -7,6 +7,9 @@
   "vars": {
     "NOTIFICATIONS_PAUSED": "true"
   },
+  "kv_namespaces": [
+    { "binding": "SCHEDULE", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }
+  ],
   "triggers": {
     "crons": ["* * * * *"]
   }

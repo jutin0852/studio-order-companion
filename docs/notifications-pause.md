@@ -34,11 +34,13 @@ records, user settings and migrations are left exactly as they are.
 
 1. Confirm the database works: run `npm run db:verify` against production, or sign in to the app and see that `/` loads instead of the recovery page.
 2. In Vercel, set `STUDIO_NOTIFICATIONS_PAUSED=false` for Production and redeploy (environment changes apply to new deployments).
-3. In `workers/notification-scheduler/wrangler.jsonc` set `NOTIFICATIONS_PAUSED` to `"false"`, then run `npx wrangler deploy` from that folder.
-4. Optional: `POST /api/notifications/process` with the cron secret; the response should no longer contain `"paused": true`.
+3. In `workers/notification-scheduler`, create the KV store once with `npx wrangler kv namespace create SCHEDULE` and put the id it prints in `wrangler.jsonc` (replace `REPLACE_WITH_KV_NAMESPACE_ID`).
+4. Set `NOTIFICATIONS_PAUSED` to `"false"` in `wrangler.jsonc`, then run `npx wrangler deploy` from that folder.
+5. Optional: `POST /api/notifications/process` with the cron secret; the response should no longer contain `"paused": true` and should include a `nextRunAt` time.
 
-Before resuming, also lower how often the worker runs (see the schedule in
-`wrangler.jsonc`). Running every minute kept the database awake around the
-clock and is what used up the free compute quota.
+The worker still ticks every minute, but it only calls the app when the saved
+`nextRunAt` has arrived, so the database can sleep in between. Running the app
+every minute was what used up the free compute quota. See
+`workers/notification-scheduler/README.md`.
 
 To pause again, set the variable back to `true` (or remove it) and redeploy.

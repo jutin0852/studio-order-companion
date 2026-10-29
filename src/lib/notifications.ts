@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { nextRunAt, SAFETY_CHECK_MINUTES } from "@/lib/next-run";
 import { notificationsPaused } from "@/lib/notifications-pause";
 import { sendPushToUser } from "@/lib/push";
 import {
@@ -12,6 +13,7 @@ import {
   randomAlertSlots,
 } from "@/lib/random-alerts";
 import { isDueSoonDay } from "@/lib/reminder-days";
+import { localDateKey, localMinutes, validTimeZoneOrDefault } from "@/lib/schedule-time";
 
 type NotificationOrder = {
   order_id: string;
@@ -40,27 +42,6 @@ type NotificationOrder = {
   awake_start: string;
   awake_end: string;
 };
-
-function localDateKey(now: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function localMinutes(now: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return Number(values.hour) * 60 + Number(values.minute);
-}
-
-function validTimeZoneOrDefault(timeZone: string) {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-    return timeZone;
-  } catch {
-    return "Africa/Lagos";
-  }
-}
 
 function dateDifference(from: string, to: string) {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
@@ -175,10 +156,14 @@ async function releaseClaim(reminderId: string) {
   }
 }
 
+function safetyCheckAt(now: Date) {
+  return new Date(now.getTime() + SAFETY_CHECK_MINUTES * 60_000).toISOString();
+}
+
 export async function processDueNotifications(now = new Date()) {
   // Checked first: while paused there is no database query and no push attempt.
-  if (notificationsPaused()) return { paused: true, processed: 0, sent: 0, failed: 0, skipped: 0 };
-  if (!db) return { processed: 0, sent: 0, failed: 0, skipped: 0 };
+  if (notificationsPaused()) return { paused: true, processed: 0, sent: 0, failed: 0, skipped: 0, nextRunAt: safetyCheckAt(now) };
+  if (!db) return { processed: 0, sent: 0, failed: 0, skipped: 0, nextRunAt: safetyCheckAt(now) };
 
   const result = await db.query<NotificationOrder>(
     `SELECT o.id AS order_id,
@@ -279,16 +264,20 @@ export async function processDueNotifications(now = new Date()) {
   }
 
   const random = await processRandomAlerts(result.rows, now);
+  const totalFailed = failed + random.failed;
   return {
     processed: processed + random.processed,
     sent: sent + random.sent,
-    failed: failed + random.failed,
+    failed: totalFailed,
     skipped: skipped + random.skipped,
+    // Tells the scheduler when to call again, so the database is only woken when
+    // something can be due. A delivery failure is retried soon.
+    nextRunAt: nextRunAt(result.rows, now, { retrySoon: totalFailed > 0 }).toISOString(),
   };
 }
 
 // A few nudges a day at unpredictable times while the owner is awake. Today's
-// times are derived from the user and date, so this stateless once-a-minute run
+// times are derived from the user and date, so this stateless scheduled run
 // needs nothing stored; the reminder dedupe key stops a slot firing twice.
 async function processRandomAlerts(rows: NotificationOrder[], now: Date) {
   const totals = { processed: 0, sent: 0, failed: 0, skipped: 0 };

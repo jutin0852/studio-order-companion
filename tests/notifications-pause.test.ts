@@ -51,7 +51,7 @@ describe("while notifications are paused", () => {
   });
 
   it("processDueNotifications makes zero database queries", async () => {
-    expect(await processDueNotifications(new Date("2026-11-02T10:00:00Z"))).toEqual({ paused: true, processed: 0, sent: 0, failed: 0, skipped: 0 });
+    expect(await processDueNotifications(new Date("2026-11-02T10:00:00Z"))).toEqual({ paused: true, processed: 0, sent: 0, failed: 0, skipped: 0, nextRunAt: expect.any(String) });
     expect(queries).not.toHaveBeenCalled();
   });
 

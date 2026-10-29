@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { processDueNotifications } from "@/lib/notifications";
+import { SAFETY_CHECK_MINUTES } from "@/lib/next-run";
 import { notificationsPaused } from "@/lib/notifications-pause";
 import { secretEquals } from "@/lib/secret-equals";
 
@@ -9,7 +10,7 @@ export async function POST(request: Request) {
   if (!secretEquals(suppliedSecret, configuredSecret)) return NextResponse.json({ error: "Not authorized." }, { status: 401 });
 
   // Answer 200 so the scheduler sees a healthy run, without touching the database.
-  if (notificationsPaused()) return NextResponse.json({ paused: true, processed: 0, sent: 0, failed: 0, skipped: 0 });
+  if (notificationsPaused()) return NextResponse.json({ paused: true, processed: 0, sent: 0, failed: 0, skipped: 0, nextRunAt: new Date(Date.now() + SAFETY_CHECK_MINUTES * 60_000).toISOString() });
 
   try {
     return NextResponse.json(await processDueNotifications());

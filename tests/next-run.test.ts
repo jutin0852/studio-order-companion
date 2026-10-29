@@ -1,0 +1,145 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { POST as processRoute } from "@/app/api/notifications/process/route";
+import { ensureUserWorkspace } from "@/lib/db";
+import { nextRunAt, SAFETY_CHECK_MINUTES, type NextRunRow } from "@/lib/next-run";
+import { processDueNotifications } from "@/lib/notifications";
+import { randomAlertSlots } from "@/lib/random-alerts";
+import { localDateKey, localMinutes, nextDateKey, zonedTimeToDate } from "@/lib/schedule-time";
+import { alice, readJson, signInAs } from "./helpers/session";
+
+const MINUTE = 60_000;
+const at = (iso: string) => new Date(iso);
+
+const row = (overrides: Partial<NextRunRow> = {}): NextRunRow => ({
+  user_id: "user-1",
+  push_enabled: true,
+  random_alerts_enabled: false,
+  random_alerts_per_day: 3,
+  awake_start: "08:00",
+  awake_end: "21:00",
+  reminder_time: "09:00",
+  timezone: "Africa/Lagos",
+  ...overrides,
+});
+
+describe("time-zone helpers", () => {
+  it("turns a local wall-clock time into the right instant", () => {
+    // Lagos is UTC+1 all year.
+    expect(zonedTimeToDate("2026-11-02", 9 * 60, "Africa/Lagos").toISOString()).toBe("2026-11-02T08:00:00.000Z");
+    // India is UTC+5:30.
+    expect(zonedTimeToDate("2026-11-02", 9 * 60, "Asia/Kolkata").toISOString()).toBe("2026-11-02T03:30:00.000Z");
+    // New York is on standard time (UTC-5) from 1 Nov 2026 and on daylight time (UTC-4) before it.
+    expect(zonedTimeToDate("2026-11-02", 9 * 60, "America/New_York").toISOString()).toBe("2026-11-02T14:00:00.000Z");
+    expect(zonedTimeToDate("2026-10-20", 9 * 60, "America/New_York").toISOString()).toBe("2026-10-20T13:00:00.000Z");
+  });
+
+  it("round-trips with the local date and minutes", () => {
+    for (const zone of ["Africa/Lagos", "Asia/Kolkata", "America/New_York", "Pacific/Auckland"]) {
+      const instant = zonedTimeToDate("2026-11-02", 13 * 60 + 25, zone);
+      expect(localDateKey(instant, zone)).toBe("2026-11-02");
+      expect(localMinutes(instant, zone)).toBe(13 * 60 + 25);
+    }
+  });
+
+  it("rolls the date over month and year ends", () => {
+    expect(nextDateKey("2026-10-31")).toBe("2026-11-01");
+    expect(nextDateKey("2026-12-31")).toBe("2027-01-01");
+    expect(nextDateKey("2028-02-28")).toBe("2028-02-29");
+  });
+});
+
+describe("nextRunAt", () => {
+  it("waits for the safety check when nothing else is sooner", () => {
+    const now = at("2026-11-02T06:00:00Z"); // 07:00 in Lagos, reminder not until 09:00
+    expect(nextRunAt([row()], now).toISOString()).toBe(new Date(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE).toISOString());
+  });
+
+  it("with nobody to notify, still wakes for the safety check", () => {
+    const now = at("2026-11-02T06:00:00Z");
+    expect(nextRunAt([], now).getTime() - now.getTime()).toBe(SAFETY_CHECK_MINUTES * MINUTE);
+  });
+
+  it("stops at a reminder that falls before the safety check", () => {
+    const now = at("2026-11-02T07:30:00Z"); // 08:30 in Lagos
+    expect(nextRunAt([row()], now).toISOString()).toBe("2026-11-02T08:00:00.000Z");
+  });
+
+  it("moves to tomorrow's reminder once today's has passed, and never beyond the safety check", () => {
+    const now = at("2026-11-02T09:30:00Z"); // 10:30 in Lagos
+    const next = nextRunAt([row()], now);
+    expect(next.getTime() - now.getTime()).toBe(SAFETY_CHECK_MINUTES * MINUTE);
+  });
+
+  it("uses each person's own time zone", () => {
+    const now = at("2026-11-02T02:30:00Z"); // 08:00 in Kolkata, 03:30 in Lagos
+    const next = nextRunAt([row({ user_id: "a", timezone: "Asia/Kolkata" })], now);
+    expect(next.toISOString()).toBe("2026-11-02T03:30:00.000Z"); // 09:00 in Kolkata
+  });
+
+  it("stops at the next random check-in", () => {
+    const now = at("2026-11-02T06:00:00Z"); // 07:00 in Lagos, before the awake window
+    const slots = randomAlertSlots({ userId: "user-1", date: "2026-11-02", count: 3, startMinutes: 8 * 60, endMinutes: 21 * 60 });
+    const firstSlot = zonedTimeToDate("2026-11-02", slots[0], "Africa/Lagos");
+    const safety = new Date(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE);
+    const expected = new Date(Math.min(firstSlot.getTime(), safety.getTime()));
+    expect(nextRunAt([row({ random_alerts_enabled: true, reminder_time: "23:00" })], now).toISOString()).toBe(expected.toISOString());
+  });
+
+  it("picks tomorrow's first check-in after the last one today", () => {
+    const now = at("2026-11-02T21:30:00Z"); // 22:30 in Lagos, after the awake window
+    const next = nextRunAt([row({ random_alerts_enabled: true })], now);
+    expect(next.getTime()).toBeGreaterThan(now.getTime());
+    expect(next.getTime()).toBeLessThanOrEqual(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE);
+  });
+
+  it("ignores people with notifications off, and random alerts when they are off", () => {
+    const now = at("2026-11-02T07:30:00Z");
+    const off = nextRunAt([row({ push_enabled: false })], now);
+    expect(off.getTime() - now.getTime()).toBe(SAFETY_CHECK_MINUTES * MINUTE);
+  });
+
+  it("takes the earliest across several people", () => {
+    const now = at("2026-11-02T07:00:00Z"); // 08:00 in Lagos
+    const next = nextRunAt([row({ user_id: "a", reminder_time: "10:30" }), row({ user_id: "b", reminder_time: "08:20" })], now);
+    expect(next.toISOString()).toBe("2026-11-02T07:20:00.000Z");
+  });
+
+  it("retries a failed delivery within five minutes", () => {
+    const now = at("2026-11-02T06:00:00Z");
+    expect(nextRunAt([row()], now, { retrySoon: true }).getTime() - now.getTime()).toBe(5 * MINUTE);
+  });
+
+  it("is never sooner than a minute away, even when something is due right now", () => {
+    const now = at("2026-11-02T07:59:50Z"); // ten seconds before the 09:00 Lagos reminder
+    expect(nextRunAt([row()], now).getTime() - now.getTime()).toBe(MINUTE);
+  });
+
+  it("falls back to Lagos time for an unknown time zone", () => {
+    const now = at("2026-11-02T07:30:00Z");
+    expect(nextRunAt([row({ timezone: "Mars/Olympus" })], now).toISOString()).toBe("2026-11-02T08:00:00.000Z");
+  });
+});
+
+describe("the processor reports when to call next", () => {
+  beforeEach(async () => {
+    await signInAs(alice);
+    await ensureUserWorkspace(alice.id, alice.name);
+  });
+
+  it("processDueNotifications returns a next run time inside the safety window", async () => {
+    const now = at("2026-11-02T06:00:00Z");
+    const result = await processDueNotifications(now);
+    const next = Date.parse(result.nextRunAt);
+    expect(next).toBeGreaterThanOrEqual(now.getTime() + MINUTE);
+    expect(next).toBeLessThanOrEqual(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE);
+  });
+
+  it("the scheduler endpoint passes it through", async () => {
+    process.env.CRON_SECRET = "next-run-secret";
+    const response = await processRoute(new Request("http://localhost/api/notifications/process", { method: "POST", headers: { "x-cron-secret": "next-run-secret" } }));
+    expect(response.status).toBe(200);
+    const body = await readJson<{ nextRunAt: string }>(response);
+    expect(Number.isFinite(Date.parse(body.nextRunAt))).toBe(true);
+    expect(Date.parse(body.nextRunAt)).toBeGreaterThan(Date.now());
+  });
+});
