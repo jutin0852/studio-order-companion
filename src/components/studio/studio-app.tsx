@@ -51,10 +51,12 @@ export default function Home({
   userId,
   initialUserName,
   initialSummaryMonth,
+  notificationsPaused = false,
 }: {
   userId: string;
   initialUserName?: string | null;
   initialSummaryMonth?: string | null;
+  notificationsPaused?: boolean;
 }) {
   const ui = useStudioUi({ initialSummaryMonth });
   const routing = useStudioRouting();
@@ -67,11 +69,12 @@ export default function Home({
   const { actionMessage, setActionMessage } = messages;
   const { orders, products, snoozed, expenses, settings, setSettings, businessProfile, setBusinessProfile, hydrated, serverLoaded } = data;
   const onboarding = useOnboarding({ userId, serverLoaded, hasData: orders.length > 0 || products.length > 0 });
-  const pushPrompt = usePushPrompt({ userId, onEnabled: () => setActionMessage("Notifications are on.") });
+  const pushPrompt = usePushPrompt({ userId, paused: notificationsPaused, onEnabled: () => setActionMessage("Notifications are on.") });
   const steps = setupSteps({
     hasProduct: products.length > 0,
     hasOrder: orders.length > 0,
     remindersOn: pushPrompt.subscribed,
+    remindersPaused: notificationsPaused,
     hasLogo: Boolean(businessProfile.logo),
   });
   const { dueOptions, editingProduct, activeProducts, selected, active, attentionOrders, selectedOrder } = derived;
@@ -264,6 +267,7 @@ export default function Home({
               <SettingsPanel
                 section={view === "settings_orders" ? "orders" : "notifications"}
                 settings={settings}
+                notificationsPaused={notificationsPaused}
                 onSave={(nextSettings) => {
                   setSettings(nextSettings);
                   setActionMessage("Settings saved.");

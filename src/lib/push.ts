@@ -1,5 +1,6 @@
 import webpush, { type PushSubscription as WebPushSubscription } from "web-push";
 import { db } from "@/lib/db";
+import { notificationsPaused } from "@/lib/notifications-pause";
 import { canonicalPushEndpoint } from "@/lib/push-endpoint.mjs";
 import { resolveVapidSubject } from "@/lib/vapid-subject";
 export { isAllowedPushEndpoint } from "@/lib/push-endpoint.mjs";
@@ -69,6 +70,7 @@ export async function removePushSubscription(userId: string, endpoint: string) {
 }
 
 export async function sendPushToUser(userId: string, payload: StudioPushPayload) {
+  if (notificationsPaused()) return { configured: true, paused: true, sent: 0, removed: 0, failed: 0 };
   if (!db) return { configured: false, sent: 0, removed: 0, failed: 0 };
   if (!isPushConfigured()) return { configured: false, sent: 0, removed: 0, failed: 0 };
 

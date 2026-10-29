@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { NOTIFICATIONS_PAUSED_MESSAGE, notificationsPaused } from "@/lib/notifications-pause";
 import { isAllowedPushEndpoint, PushEndpointConflictError, removePushSubscription, savePushSubscription } from "@/lib/push";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_POLICIES } from "@/lib/rate-limit-policy";
@@ -20,6 +21,7 @@ function isValidSubscription(body: SubscriptionBody | null): body is Required<Pi
 }
 
 export async function POST(request: Request) {
+  if (notificationsPaused()) return NextResponse.json({ error: NOTIFICATIONS_PAUSED_MESSAGE, paused: true }, { status: 503 });
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to enable notifications." }, { status: 401 });
   const limited = await rateLimit(session.user.id, RATE_POLICIES.write);
@@ -44,6 +46,8 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  // Saved devices are kept untouched while paused so notifications can resume later.
+  if (notificationsPaused()) return NextResponse.json({ error: NOTIFICATIONS_PAUSED_MESSAGE, paused: true }, { status: 503 });
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return NextResponse.json({ error: "You must be signed in to disable notifications." }, { status: 401 });
   const limited = await rateLimit(session.user.id, RATE_POLICIES.write);

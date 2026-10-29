@@ -87,11 +87,13 @@ export function ReceiptsSettingsPage({ onBack }: { onBack: () => void }) {
 export function SettingsPanel({
   section,
   settings,
+  notificationsPaused = false,
   onSave,
   onBack,
 }: {
   section: "orders" | "notifications";
   settings: Settings;
+  notificationsPaused?: boolean;
   onSave: (settings: Settings) => void;
   onBack: () => void;
 }) {
@@ -237,7 +239,7 @@ export function SettingsPanel({
   return (
     <SettingsSubpage title="Notifications" onBack={onBack}>
       <div className="max-w-2xl space-y-6">
-        <PushNotificationSettings dueSoonDaysBefore={dueSoonDaysBefore} />
+        <PushNotificationSettings dueSoonDaysBefore={dueSoonDaysBefore} paused={notificationsPaused} />
         <form onSubmit={submit} className="space-y-6">
           <Card className="ring-0">
             <CardContent className="space-y-5 p-5">

@@ -1,6 +1,8 @@
 interface Env {
   APP_URL: string;
   CRON_SECRET: string;
+  // Notifications stay paused unless this is explicitly "false".
+  NOTIFICATIONS_PAUSED?: string;
 }
 
 interface SchedulerController {
@@ -26,7 +28,14 @@ type ProcessorResult = {
   body: string;
 };
 
+function notificationsPaused(env: Env) {
+  return env.NOTIFICATIONS_PAUSED?.trim().toLowerCase() !== "false";
+}
+
 async function processNotifications(env: Env): Promise<ProcessorResult> {
+  // Paused: do not call the app at all, so nothing reaches the database.
+  if (notificationsPaused(env)) return { status: 200, body: '{"paused":true}' };
+
   const processorUrl = new URL("/api/notifications/process", env.APP_URL);
   const response = await fetch(processorUrl, {
     method: "POST",

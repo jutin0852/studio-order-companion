@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { notificationsPaused } from "@/lib/notifications-pause";
 import { sendPushToUser } from "@/lib/push";
 import {
   buildNudge,
@@ -175,6 +176,8 @@ async function releaseClaim(reminderId: string) {
 }
 
 export async function processDueNotifications(now = new Date()) {
+  // Checked first: while paused there is no database query and no push attempt.
+  if (notificationsPaused()) return { paused: true, processed: 0, sent: 0, failed: 0, skipped: 0 };
   if (!db) return { processed: 0, sent: 0, failed: 0, skipped: 0 };
 
   const result = await db.query<NotificationOrder>(

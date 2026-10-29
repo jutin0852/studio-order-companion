@@ -13,13 +13,15 @@ export type SetupProgress = {
   hasProduct: boolean;
   hasOrder: boolean;
   remindersOn: boolean;
+  // Notifications are paused, so the reminders step cannot be completed yet.
+  remindersPaused?: boolean;
   hasLogo: boolean;
 };
 
 // Ordered the way a new owner naturally works: what you sell, your first order,
 // then the extras that make Studio more useful.
 export function setupSteps(progress: SetupProgress): SetupStep[] {
-  return [
+  const steps: SetupStep[] = [
     {
       id: "product",
       title: "Add your first product",
@@ -53,6 +55,7 @@ export function setupSteps(progress: SetupProgress): SetupStep[] {
       done: progress.hasLogo,
     },
   ];
+  return progress.remindersPaused ? steps.filter((step) => step.id !== "reminders") : steps;
 }
 
 export const nextSetupStep = (steps: SetupStep[]) => steps.find((step) => !step.done) ?? null;

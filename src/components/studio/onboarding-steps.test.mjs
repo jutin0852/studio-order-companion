@@ -32,3 +32,9 @@ test("finishing every step completes setup", () => {
 test("every step has a page to go to", () => {
   for (const step of setupSteps(none)) assert.match(step.href, /^\//);
 });
+
+test("the reminders step is left out while notifications are paused, so setup can still finish", () => {
+  const steps = setupSteps({ ...none, remindersPaused: true });
+  assert.deepEqual(steps.map((step) => step.id), ["product", "order", "logo"]);
+  assert.equal(setupComplete(setupSteps({ hasProduct: true, hasOrder: true, remindersOn: false, remindersPaused: true, hasLogo: true })), true);
+});

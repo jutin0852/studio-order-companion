@@ -3,6 +3,8 @@ import { createTestPool } from "./helpers/db";
 
 process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test";
 process.env.CLOUDINARY_CLOUD_NAME = "demo";
+// Notifications ship paused; the notification tests run with them switched on.
+process.env.STUDIO_NOTIFICATIONS_PAUSED = "false";
 
 const state = vi.hoisted(() => ({ pool: null as unknown }));
 

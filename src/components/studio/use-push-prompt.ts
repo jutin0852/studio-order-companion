@@ -20,12 +20,14 @@ type Device = Omit<PushPromptInput, "now"> & { readAt: number };
  * Whether to ask this person to turn notifications on, and the action that does
  * it. Reads the device once on load, then follows what the person does.
  */
-export function usePushPrompt({ userId, onEnabled }: { userId: string; onEnabled?: () => void }) {
+export function usePushPrompt({ userId, paused = false, onEnabled }: { userId: string; paused?: boolean; onEnabled?: () => void }) {
   const [device, setDevice] = useState<Device | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    // Notifications are paused: never ask, and never touch the service worker.
+    if (paused) return;
     let cancelled = false;
     const read = async () => {
       const supported = pushSupported();
@@ -51,9 +53,10 @@ export function usePushPrompt({ userId, onEnabled }: { userId: string; onEnabled
       cancelled = true;
       window.cancelAnimationFrame(frame);
     };
-  }, [userId]);
+  }, [userId, paused]);
 
   const enable = useCallback(async () => {
+    if (paused) return;
     setBusy(true);
     setError("");
     try {
@@ -67,7 +70,7 @@ export function usePushPrompt({ userId, onEnabled }: { userId: string; onEnabled
     } finally {
       setBusy(false);
     }
-  }, [onEnabled]);
+  }, [onEnabled, paused]);
 
   const dismiss = useCallback(() => {
     const until = dismissedUntilFrom(Date.now());
@@ -80,7 +83,7 @@ export function usePushPrompt({ userId, onEnabled }: { userId: string; onEnabled
   }, [userId]);
 
   return {
-    state: device ? pushPromptState({ ...device, now: device.readAt }) : ("hidden" as const),
+    state: device && !paused ? pushPromptState({ ...device, now: device.readAt }) : ("hidden" as const),
     subscribed: device?.subscribed ?? false,
     busy,
     error,

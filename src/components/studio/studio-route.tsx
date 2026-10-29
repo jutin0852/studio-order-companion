@@ -5,6 +5,7 @@ import StudioApp, { StudioLoading } from "@/components/studio/studio-app";
 import OfflineRecovery from "@/components/studio/offline-recovery";
 import { AuthSetupNotice } from "@/components/auth/auth-form";
 import { auth, isAuthConfigured } from "@/lib/auth";
+import { notificationsPaused } from "@/lib/notifications-pause";
 
 export default function StudioRoute({
   initialSummaryMonth,
@@ -38,6 +39,7 @@ async function ProtectedStudio({
       userId={session.user.id}
       initialUserName={session.user.name}
       initialSummaryMonth={initialSummaryMonth}
+      notificationsPaused={notificationsPaused()}
     />
   );
 }

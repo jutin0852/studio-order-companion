@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
 import { FIELD_LIMITS, optionalText, requiredText } from "@/lib/field-limits";
+import { notificationsPaused } from "@/lib/notifications-pause";
 import { sendPushToUser } from "@/lib/push";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_POLICIES } from "@/lib/rate-limit-policy";
@@ -109,7 +110,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     );
     if (!result.rowCount) return NextResponse.json({ error: "Order not found." }, { status: 404 });
     const updatedOrder = result.rows[0];
-    if (body.status && body.status !== previousStatus && (updatedOrder.status === "ready" || updatedOrder.status === "delivered")) {
+    if (!notificationsPaused() && body.status && body.status !== previousStatus && (updatedOrder.status === "ready" || updatedOrder.status === "delivered")) {
       try {
         const preference = await db.query<{ push_enabled: boolean }>(
           "SELECT push_enabled FROM notification_preferences WHERE user_id = $1",

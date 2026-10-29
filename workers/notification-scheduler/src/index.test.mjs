@@ -6,6 +6,7 @@ import scheduler from "./index.ts";
 const env = {
   APP_URL: "https://studio.example",
   CRON_SECRET: "test-cron-secret",
+  NOTIFICATIONS_PAUSED: "false",
 };
 
 test("scheduler is configured to check once per minute", async () => {
@@ -72,4 +73,39 @@ test("manual run endpoint reports the processor result when authorized", async (
     status: 200,
     body: '{"processed":1,"sent":1}',
   });
+});
+
+test("paused scheduler never calls the Studio processor", async (context) => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response("{}", { status: 200 });
+  };
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  for (const NOTIFICATIONS_PAUSED of ["true", undefined, ""]) {
+    const pausedEnv = { APP_URL: env.APP_URL, CRON_SECRET: env.CRON_SECRET, NOTIFICATIONS_PAUSED };
+    let scheduledWork;
+    await scheduler.scheduled(
+      { cron: "* * * * *", scheduledTime: 1_800_000_000_000 },
+      pausedEnv,
+      { waitUntil(promise) { scheduledWork = promise; } },
+    );
+    await scheduledWork;
+
+    const manual = await scheduler.fetch(
+      new Request("https://scheduler.example/run", { method: "POST", headers: { authorization: `Bearer ${env.CRON_SECRET}` } }),
+      pausedEnv,
+    );
+    assert.equal(manual.status, 200);
+  }
+  assert.equal(calls, 0);
+});
+
+test("wrangler config ships the worker paused", async () => {
+  const config = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
+  assert.equal(config.vars.NOTIFICATIONS_PAUSED, "true");
 });
