@@ -3,7 +3,7 @@
   "name": "studio-notification-scheduler",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-09",
-  "workers_dev": false,
+  "workers_dev": true,
   "vars": {
     "NOTIFICATIONS_PAUSED": "true"
   },

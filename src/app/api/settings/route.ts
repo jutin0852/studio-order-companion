@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { rescheduleNotifications } from "@/lib/notification-scheduler";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
@@ -166,6 +167,7 @@ export async function PATCH(request: Request) {
       ],
     );
     if (!result.rows[0]) return NextResponse.json({ error: "Settings could not be saved." }, { status: 503 });
+    rescheduleNotifications();
     return NextResponse.json({ settings: serialize(result.rows[0]) });
   } catch {
     return NextResponse.json({ error: "Settings could not be saved." }, { status: 503 });

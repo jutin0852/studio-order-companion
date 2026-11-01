@@ -67,6 +67,14 @@ function reminderKind(order: NotificationOrder, today: string): ReminderKind | n
   return null;
 }
 
+// The reminder an order has on a given day, if any, once snoozing is applied.
+function reminderForDay(order: NotificationOrder, today: string) {
+  const kind = reminderKind(order, today);
+  if (!kind) return null;
+  const isDeadlineDayAlert = kind === "due_today" || kind === "overdue";
+  return order.snoozed_until && order.snoozed_until > today && !isDeadlineDayAlert ? null : kind;
+}
+
 function reminderCopy(kind: ReminderKind, order: NotificationOrder, today: string) {
   const url = `/orders?order=${encodeURIComponent(order.order_id)}`;
   if (kind === "overdue") return { title: "Overdue order needs action", body: `${order.product_name} for ${order.customer_name} is overdue. Open Studio and move it forward.`, url };
@@ -213,13 +221,8 @@ export async function processDueNotifications(now = new Date()) {
 
     const timeZone = validTimeZoneOrDefault(order.timezone);
     const today = localDateKey(now, timeZone);
-    const kind = reminderKind(order, today);
+    const kind = reminderForDay(order, today);
     if (!kind) {
-      skipped += 1;
-      continue;
-    }
-    const isDeadlineDayAlert = kind === "due_today" || kind === "overdue";
-    if (order.snoozed_until && order.snoozed_until > today && !isDeadlineDayAlert) {
       skipped += 1;
       continue;
     }
@@ -272,7 +275,10 @@ export async function processDueNotifications(now = new Date()) {
     skipped: skipped + random.skipped,
     // Tells the scheduler when to call again, so the database is only woken when
     // something can be due. A delivery failure is retried soon.
-    nextRunAt: nextRunAt(result.rows, now, { retrySoon: totalFailed > 0 }).toISOString(),
+    nextRunAt: nextRunAt(result.rows, now, {
+      retrySoon: totalFailed > 0,
+      hasReminderOn: (order, date) => reminderForDay(order, date) !== null,
+    }).toISOString(),
   };
 }
 

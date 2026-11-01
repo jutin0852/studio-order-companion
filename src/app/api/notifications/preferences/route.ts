@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { rescheduleNotifications } from "@/lib/notification-scheduler";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 import {
@@ -145,6 +146,7 @@ export async function PATCH(request: Request) {
         (body?.awakeEnd as string | undefined) ?? null,
       ],
     );
+    rescheduleNotifications();
     return NextResponse.json({ preferences: serialize(result.rows[0]) });
   } catch {
     return NextResponse.json({ error: "Notification preferences could not be saved." }, { status: 503 });

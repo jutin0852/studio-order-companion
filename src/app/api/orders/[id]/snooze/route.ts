@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
+import { rescheduleNotifications } from "@/lib/notification-scheduler";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
@@ -30,6 +31,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     if (snoozedUntil === null) {
       await db.query("DELETE FROM order_snoozes WHERE order_id = $1::uuid AND business_id = $2", [orderId, businessId]);
+      rescheduleNotifications();
       return NextResponse.json({ snoozedUntil: null });
     }
 
@@ -42,6 +44,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
        RETURNING to_char(snoozed_until, 'YYYY-MM-DD') AS snoozed_until`,
       [orderId, businessId, snoozedUntil],
     );
+    rescheduleNotifications();
     return NextResponse.json({ snoozedUntil: result.rows[0]?.snoozed_until ?? snoozedUntil });
   } catch {
     return NextResponse.json({ error: "The reminder could not be updated right now." }, { status: 503 });

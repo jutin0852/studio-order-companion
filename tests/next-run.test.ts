@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { POST as processRoute } from "@/app/api/notifications/process/route";
-import { ensureUserWorkspace } from "@/lib/db";
+import { db, ensureUserWorkspace } from "@/lib/db";
 import { nextRunAt, SAFETY_CHECK_MINUTES, type NextRunRow } from "@/lib/next-run";
 import { processDueNotifications } from "@/lib/notifications";
 import { randomAlertSlots } from "@/lib/random-alerts";
@@ -9,6 +9,7 @@ import { alice, readJson, signInAs } from "./helpers/session";
 
 const MINUTE = 60_000;
 const at = (iso: string) => new Date(iso);
+const backstopFrom = (now: Date) => new Date(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE).toISOString();
 
 const row = (overrides: Partial<NextRunRow> = {}): NextRunRow => ({
   user_id: "user-1",
@@ -49,25 +50,19 @@ describe("time-zone helpers", () => {
 });
 
 describe("nextRunAt", () => {
-  it("waits for the safety check when nothing else is sooner", () => {
-    const now = at("2026-11-02T06:00:00Z"); // 07:00 in Lagos, reminder not until 09:00
-    expect(nextRunAt([row()], now).toISOString()).toBe(new Date(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE).toISOString());
-  });
-
-  it("with nobody to notify, still wakes for the safety check", () => {
+  it("with nobody to notify, sleeps until the daily backstop", () => {
     const now = at("2026-11-02T06:00:00Z");
-    expect(nextRunAt([], now).getTime() - now.getTime()).toBe(SAFETY_CHECK_MINUTES * MINUTE);
+    expect(nextRunAt([], now).toISOString()).toBe(backstopFrom(now));
   });
 
-  it("stops at a reminder that falls before the safety check", () => {
-    const now = at("2026-11-02T07:30:00Z"); // 08:30 in Lagos
+  it("goes straight to a reminder hours away, with no hourly wake-up", () => {
+    const now = at("2026-11-02T02:00:00Z"); // 03:00 in Lagos, reminder at 09:00
     expect(nextRunAt([row()], now).toISOString()).toBe("2026-11-02T08:00:00.000Z");
   });
 
-  it("moves to tomorrow's reminder once today's has passed, and never beyond the safety check", () => {
+  it("moves to tomorrow's reminder once today's has passed", () => {
     const now = at("2026-11-02T09:30:00Z"); // 10:30 in Lagos
-    const next = nextRunAt([row()], now);
-    expect(next.getTime() - now.getTime()).toBe(SAFETY_CHECK_MINUTES * MINUTE);
+    expect(nextRunAt([row()], now).toISOString()).toBe("2026-11-03T08:00:00.000Z");
   });
 
   it("uses each person's own time zone", () => {
@@ -80,22 +75,20 @@ describe("nextRunAt", () => {
     const now = at("2026-11-02T06:00:00Z"); // 07:00 in Lagos, before the awake window
     const slots = randomAlertSlots({ userId: "user-1", date: "2026-11-02", count: 3, startMinutes: 8 * 60, endMinutes: 21 * 60 });
     const firstSlot = zonedTimeToDate("2026-11-02", slots[0], "Africa/Lagos");
-    const safety = new Date(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE);
-    const expected = new Date(Math.min(firstSlot.getTime(), safety.getTime()));
-    expect(nextRunAt([row({ random_alerts_enabled: true, reminder_time: "23:00" })], now).toISOString()).toBe(expected.toISOString());
+    expect(nextRunAt([row({ random_alerts_enabled: true, reminder_time: "23:00" })], now).toISOString()).toBe(firstSlot.toISOString());
   });
 
   it("picks tomorrow's first check-in after the last one today", () => {
     const now = at("2026-11-02T21:30:00Z"); // 22:30 in Lagos, after the awake window
-    const next = nextRunAt([row({ random_alerts_enabled: true })], now);
-    expect(next.getTime()).toBeGreaterThan(now.getTime());
-    expect(next.getTime()).toBeLessThanOrEqual(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE);
+    const slots = randomAlertSlots({ userId: "user-1", date: "2026-11-03", count: 3, startMinutes: 8 * 60, endMinutes: 21 * 60 });
+    const firstSlot = zonedTimeToDate("2026-11-03", slots[0], "Africa/Lagos");
+    const next = nextRunAt([row({ random_alerts_enabled: true })], now, { hasReminderOn: () => false });
+    expect(next.toISOString()).toBe(firstSlot.toISOString());
   });
 
-  it("ignores people with notifications off, and random alerts when they are off", () => {
+  it("ignores people with notifications off", () => {
     const now = at("2026-11-02T07:30:00Z");
-    const off = nextRunAt([row({ push_enabled: false })], now);
-    expect(off.getTime() - now.getTime()).toBe(SAFETY_CHECK_MINUTES * MINUTE);
+    expect(nextRunAt([row({ push_enabled: false })], now).toISOString()).toBe(backstopFrom(now));
   });
 
   it("takes the earliest across several people", () => {
@@ -109,6 +102,12 @@ describe("nextRunAt", () => {
     expect(nextRunAt([row()], now, { retrySoon: true }).getTime() - now.getTime()).toBe(5 * MINUTE);
   });
 
+  it("waits for a reminder nearly two days away rather than waking in between", () => {
+    const now = at("2026-11-02T00:30:00Z"); // 01:30 in Lagos, nothing due today
+    const next = nextRunAt([row()], now, { hasReminderOn: (_row, date) => date === "2026-11-03" });
+    expect(next.toISOString()).toBe("2026-11-03T08:00:00.000Z");
+  });
+
   it("is never sooner than a minute away, even when something is due right now", () => {
     const now = at("2026-11-02T07:59:50Z"); // ten seconds before the 09:00 Lagos reminder
     expect(nextRunAt([row()], now).getTime() - now.getTime()).toBe(MINUTE);
@@ -118,20 +117,53 @@ describe("nextRunAt", () => {
     const now = at("2026-11-02T07:30:00Z");
     expect(nextRunAt([row({ timezone: "Mars/Olympus" })], now).toISOString()).toBe("2026-11-02T08:00:00.000Z");
   });
+
+  describe("only days with a real reminder count", () => {
+    const now = at("2026-11-02T06:00:00Z");
+
+    it("skips today when only tomorrow has a reminder", () => {
+      const next = nextRunAt([row()], now, { hasReminderOn: (_row, date) => date === "2026-11-03" });
+      expect(next.toISOString()).toBe("2026-11-03T08:00:00.000Z");
+    });
+
+    it("does not wake at all when neither day has one", () => {
+      expect(nextRunAt([row()], now, { hasReminderOn: () => false }).toISOString()).toBe(backstopFrom(now));
+    });
+
+    it("counts any of a person's orders, not only the first", () => {
+      const quiet = row({ reminder_time: "09:00" });
+      const due = row({ reminder_time: "09:00" });
+      const next = nextRunAt([quiet, due], now, { hasReminderOn: (order) => order === due });
+      expect(next.toISOString()).toBe("2026-11-02T08:00:00.000Z");
+    });
+  });
 });
 
 describe("the processor reports when to call next", () => {
+  let businessId: string;
+
+  const addOrder = (dueDate: string) => db!.query(
+    `INSERT INTO orders (business_id, product_name, customer_name, amount_paid, due_date, status)
+     VALUES ($1, 'Gown', 'Ada', 1000, $2::date, 'not_started')`,
+    [businessId, dueDate],
+  );
+
   beforeEach(async () => {
     await signInAs(alice);
-    await ensureUserWorkspace(alice.id, alice.name);
+    businessId = await ensureUserWorkspace(alice.id, alice.name);
+    await db!.query("DELETE FROM orders WHERE business_id = $1", [businessId]);
+    await db!.query("UPDATE notification_preferences SET random_alerts_enabled = false WHERE user_id = $1", [alice.id]);
   });
 
-  it("processDueNotifications returns a next run time inside the safety window", async () => {
+  it("sleeps until the backstop when no order has a reminder soon", async () => {
     const now = at("2026-11-02T06:00:00Z");
-    const result = await processDueNotifications(now);
-    const next = Date.parse(result.nextRunAt);
-    expect(next).toBeGreaterThanOrEqual(now.getTime() + MINUTE);
-    expect(next).toBeLessThanOrEqual(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE);
+    await addOrder("2026-12-25");
+    expect((await processDueNotifications(now)).nextRunAt).toBe(backstopFrom(now));
+  });
+
+  it("wakes at the reminder time on the day an order needs it", async () => {
+    await addOrder("2026-11-03");
+    expect((await processDueNotifications(at("2026-11-02T06:00:00Z"))).nextRunAt).toBe("2026-11-03T08:00:00.000Z");
   });
 
   it("the scheduler endpoint passes it through", async () => {

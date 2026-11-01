@@ -105,7 +105,7 @@ test("nothing calls the app between alarms", async (context) => {
   assert.equal(fetches.calls.length, 1);
 });
 
-test("the next alarm is kept between one minute and two hours from now", async (context) => {
+test("the next alarm is kept between one minute and 49 hours from now", async (context) => {
   quiet(context);
   const { object, alarm } = setup();
 
@@ -114,10 +114,10 @@ test("the next alarm is kept between one minute and two hours from now", async (
   await object.alarm();
   assert.ok(alarm() >= before + MINUTE && alarm() <= Date.now() + MINUTE, "a time in the past cannot make it spin");
 
-  stubFetch(context, () => answer(new Date(Date.now() + 24 * 60 * MINUTE).toISOString()));
+  stubFetch(context, () => answer(new Date(Date.now() + 72 * 60 * MINUTE).toISOString()));
   before = Date.now();
   await object.alarm();
-  assert.ok(alarm() >= before + 120 * MINUTE && alarm() <= Date.now() + 120 * MINUTE, "a far-off time cannot go quiet for a day");
+  assert.ok(alarm() >= before + 49 * 60 * MINUTE && alarm() <= Date.now() + 49 * 60 * MINUTE, "a far-off time cannot go quiet for days");
 });
 
 test("an answer without a usable time waits 20 minutes", async (context) => {
@@ -194,11 +194,68 @@ test("manual run reports a processor failure as 502", async (context) => {
   assert.equal((await response.json()).ok, false);
 });
 
+const reschedule = (env, secret = SECRET) => scheduler.fetch(
+  new Request("https://scheduler.example/reschedule", { method: "POST", headers: { authorization: `Bearer ${secret}` } }),
+  env,
+);
+
+test("reschedule rejects an incorrect secret and leaves the alarm alone", async () => {
+  const { env, alarm, setAlarm } = setup();
+  const later = Date.now() + 5 * 60 * MINUTE;
+  setAlarm(later);
+  const response = await reschedule(env, "wrong-secret");
+  assert.equal(response.status, 401);
+  assert.equal(alarm(), later);
+});
+
+test("reschedule brings a later alarm forward to a minute from now, without calling the app", async (context) => {
+  quiet(context);
+  const fetches = stubFetch(context, () => answer(new Date().toISOString()));
+  const { env, alarm, setAlarm } = setup();
+  setAlarm(Date.now() + 5 * 60 * MINUTE);
+  const before = Date.now();
+  const response = await reschedule(env);
+  assert.equal(response.status, 200);
+  assert.ok(alarm() >= before + MINUTE && alarm() <= Date.now() + MINUTE);
+  assert.equal(fetches.calls.length, 0);
+});
+
+test("a burst of changes keeps the first alarm instead of pushing it back", async () => {
+  const { env, alarm } = setup();
+  await reschedule(env);
+  const first = alarm();
+  await new Promise((resolve) => { setTimeout(resolve, 5); });
+  await reschedule(env);
+  assert.equal(alarm(), first);
+});
+
+test("reschedule starts an alarm when none exists", async () => {
+  const { env, alarm } = setup();
+  await reschedule(env);
+  assert.notEqual(alarm(), null);
+});
+
+test("reschedule never moves a sooner alarm later", async () => {
+  const { env, alarm, setAlarm } = setup();
+  const sooner = Date.now() + 10_000;
+  setAlarm(sooner);
+  await reschedule(env);
+  assert.equal(alarm(), sooner);
+});
+
+test("reschedule does nothing while paused", async () => {
+  const { env, alarm } = setup({ NOTIFICATIONS_PAUSED: "true" });
+  const response = await reschedule(env);
+  assert.equal(response.status, 200);
+  assert.equal(alarm(), null);
+});
+
 test("the worker is not scheduled every minute, and ships paused with the alarm object bound", async () => {
   const config = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
   assert.deepEqual(config.triggers.crons, ["*/30 * * * *"]);
   assert.notDeepEqual(config.triggers.crons, ["* * * * *"]);
   assert.equal(config.vars.NOTIFICATIONS_PAUSED, "true");
+  assert.equal(config.workers_dev, true, "the app needs an address to call /reschedule");
   assert.equal(config.durable_objects.bindings[0].name, "SCHEDULER");
   assert.equal(config.durable_objects.bindings[0].class_name, "NotificationScheduler");
   assert.deepEqual(config.migrations[0].new_sqlite_classes, ["NotificationScheduler"]);

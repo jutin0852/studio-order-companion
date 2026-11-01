@@ -76,20 +76,22 @@ allowed, and nothing warned anyone.
 Do not poll the database to find out whether there is work. Work out when the
 next piece of work is due, and set one timer for that moment.
 
-1. After each run, the app computes the next moment anything could be due: the
-   earliest of each user's next reminder time, their next random check-in, and a
-   safety check an hour away.
+1. After each run, the app computes the next moment anything is actually due:
+   the earliest real reminder and each user's next random check-in.
 2. The scheduler sets a single timer for that time (a Cloudflare Durable Object
    alarm) and stops. Nothing runs in between: no per-minute tick at all.
 3. When the timer fires, the scheduler calls the app, and the cycle repeats.
-4. If a run fails, the next timer is set about 10 minutes out, so it neither
+4. When someone changes something that affects the times, the app tells the
+   scheduler straight away and the timer is recalculated.
+5. If a run fails, the next timer is set about 10 minutes out, so it neither
    hammers a broken database nor stops for good.
-5. Changes made during the day (a new reminder time, a new order) are picked up
-   by the hourly safety check.
-6. A slow watchdog only checks that a timer exists, in case the chain ever stops.
+6. If nothing is due for two days, it checks once a day. A slow watchdog only
+   confirms a timer exists, in case the chain ever stops.
 
-For a handful of users this cuts database wake-ups from 1,440 a day to about 25,
-roughly 18 compute-hours a month instead of 180.
+With default settings each person with open orders causes about four wake-ups a
+day (one reminder, three check-ins), against 1,440 before. At roughly five minutes
+awake each, that is about 10 compute-hours a month per person, instead of 180 in
+total. Wake-ups that land close together share the same awake time.
 
 Honest limits: with hundreds or thousands of users, something is due almost
 every minute, so the database stays awake anyway and a paid plan is the right

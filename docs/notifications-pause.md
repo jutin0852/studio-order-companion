@@ -35,8 +35,9 @@ records, user settings and migrations are left exactly as they are.
 1. Confirm the database works: run `npm run db:verify` against production, or sign in to the app and see that `/` loads instead of the recovery page.
 2. In Vercel, set `STUDIO_NOTIFICATIONS_PAUSED=false` for Production and redeploy (environment changes apply to new deployments).
 3. In `workers/notification-scheduler/wrangler.jsonc` set `NOTIFICATIONS_PAUSED` to `"false"`, then run `npx wrangler deploy` from that folder. There is nothing else to create: the first deploy sets up the Durable Object that holds the alarm.
-4. Within 30 minutes the watchdog starts the alarm. From then on the app is only called when something can be due.
-5. Optional: `POST /api/notifications/process` with the cron secret; the response should no longer contain `"paused": true` and should include a `nextRunAt` time.
+4. Copy the `workers.dev` address the deploy prints into `NOTIFICATIONS_SCHEDULER_URL` in Vercel for Production, and redeploy. This lets the app tell the Worker when times change.
+5. Within 30 minutes the watchdog starts the alarm. From then on the app is only called when something is due.
+6. Optional: `POST /api/notifications/process` with the cron secret; the response should no longer contain `"paused": true` and should include a `nextRunAt` time.
 
 Do the worker deploy before relying on notifications. The old worker calls the
 app every minute, which is what used up the free compute quota. See

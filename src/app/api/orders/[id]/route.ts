@@ -5,6 +5,7 @@ import { db, ensureUserWorkspace } from "@/lib/db";
 import { FIELD_LIMITS, optionalText, requiredText } from "@/lib/field-limits";
 import { notificationsPaused } from "@/lib/notifications-pause";
 import { sendPushToUser } from "@/lib/push";
+import { rescheduleNotifications } from "@/lib/notification-scheduler";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
@@ -129,6 +130,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         // A notification delivery problem must not undo a successfully saved order update.
       }
     }
+    rescheduleNotifications();
     return NextResponse.json({ order: serializeOrder(updatedOrder) });
   } catch {
     return NextResponse.json({ error: "The order could not be updated right now." }, { status: 503 });

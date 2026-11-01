@@ -14,15 +14,22 @@ So there is no per-minute schedule. A single Durable Object holds one alarm:
 
 1. When the alarm fires, the object calls the processor.
 2. The app sends any notifications that are due and answers with `nextRunAt`: the
-   earliest of every person's next reminder time, their next random check-in,
-   and a safety check 60 minutes away.
+   earliest real reminder and the earliest random check-in. A reminder only
+   counts on a day an order actually has one.
 3. The object sets its alarm for that time and stops. Nothing runs in between.
-4. The time is kept between 1 minute and 2 hours ahead, whatever the app says, so
-   a bad answer cannot cause a storm or a day of silence.
-5. After a failed run (for example the database is down or over quota) the next
+4. When someone changes something that affects the times (a new order, a due
+   date, a snooze, a reminder time, awake hours), the app calls `/reschedule`.
+   The alarm is brought forward to a minute away, so a burst of edits becomes
+   one run, and the new time is worked out then. The database is already awake
+   at that moment because the person just saved something.
+5. If nothing is due today or tomorrow, the alarm is set a day away. That daily
+   check finds every later reminder in time.
+6. The time is kept between 1 minute and 49 hours ahead, whatever the app says,
+   so a bad answer cannot cause a storm or days of silence.
+7. After a failed run (for example the database is down or over quota) the next
    alarm is 10 minutes away. A new alarm is always set, so the chain never breaks.
-6. Changes made during the day, such as a new reminder time or a new order, are
-   picked up by the 60-minute safety check.
+
+If a `/reschedule` call is lost, that edit takes effect at the next alarm.
 
 The cron trigger (`*/30 * * * *`) is a watchdog, not the schedule. It only makes
 sure an alarm exists, which starts the chain after the first deploy or a resume.
@@ -51,6 +58,10 @@ npx wrangler secret put CRON_SECRET
 `https://studio.example.vercel.app`. `CRON_SECRET` must exactly match the
 `CRON_SECRET` environment variable configured on the Studio deployment.
 
+After the first deploy, set `NOTIFICATIONS_SCHEDULER_URL` on the Studio deployment
+to the Worker's `workers.dev` address, which `wrangler deploy` prints. Without it
+the app cannot tell the Worker about changes, and edits wait for the next alarm.
+
 ## Deploy
 
 ```bash
@@ -74,9 +85,8 @@ The watchdog then starts the alarm within 30 minutes. See
 
 ## Verify
 
-This Worker intentionally has no public URL. Its only production entry points
-are the alarm and the watchdog. To run the processor manually during development,
-send a `POST` to `/run` with:
+The Worker has a public address so the app can reach `/reschedule`. `/reschedule`
+and `/run` both require the secret, and `/run` calls the processor immediately:
 
 ```text
 Authorization: Bearer <CRON_SECRET>

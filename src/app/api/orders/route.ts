@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, ensureUserWorkspace } from "@/lib/db";
 import { FIELD_LIMITS, optionalText, requiredText } from "@/lib/field-limits";
+import { rescheduleNotifications } from "@/lib/notification-scheduler";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_POLICIES } from "@/lib/rate-limit-policy";
 
@@ -125,6 +126,7 @@ export async function POST(request: Request) {
        RETURNING id, customer_name, product_name, product_id, amount_paid, to_char(due_date, 'YYYY-MM-DD') AS due_date, status, notes, client_request_id, created_at, (xmax = 0) AS inserted`,
       [businessId, productId, productName, customerName, amountPaid, dueDate, notes, clientRequestId ?? "", status],
     );
+    rescheduleNotifications();
     return NextResponse.json({ order: serializeOrder(result.rows[0]) }, { status: result.rows[0].inserted ? 201 : 200 });
   } catch {
     return NextResponse.json({ error: "The order could not be saved right now." }, { status: 503 });

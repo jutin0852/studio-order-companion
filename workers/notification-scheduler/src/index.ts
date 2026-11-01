@@ -1,8 +1,10 @@
 // Calls Studio's notification processor at the time the app says is next, and
 // not otherwise. A Durable Object holds one alarm; when it fires, the object
 // calls the app, reads the next time from the answer and sets the alarm for it.
-// There is no per-minute tick. The cron trigger is only a slow watchdog that
-// starts the alarm if it was never set (first deploy, or after a pause).
+// There is no per-minute tick. When someone changes something that affects the
+// times, the app calls /reschedule so the alarm is recalculated straight away.
+// The cron trigger is only a slow watchdog that starts the alarm if it was never
+// set (first deploy, or after a pause).
 
 interface DurableObjectStorage {
   getAlarm(): Promise<number | null>;
@@ -60,9 +62,12 @@ const OBJECT_ORIGIN = "https://scheduler.internal";
 // After a failed run (for example the database is down or over quota) wait this
 // long before calling again.
 const FAILURE_BACKOFF_MS = 10 * MINUTE;
-// Never schedule sooner than a minute, or later than two hours, whatever the app says.
+// Never schedule sooner than a minute, or later than the two days the app can look
+// ahead plus an hour, whatever the app says.
 const MIN_WAIT_MS = MINUTE;
-const MAX_WAIT_MS = 120 * MINUTE;
+const MAX_WAIT_MS = 49 * 60 * MINUTE;
+// A change waits this long before recalculating, so a burst of edits is one run.
+const RESCHEDULE_DELAY_MS = MINUTE;
 // Used when the app does not say when to call next.
 const DEFAULT_WAIT_MS = 20 * MINUTE;
 
@@ -120,6 +125,11 @@ export class NotificationScheduler {
       return Response.json({ ok: true, alarmAt: await this.state.storage.getAlarm() });
     }
 
+    if (pathname === "/reschedule" && request.method === "POST") {
+      await this.reschedule(Date.now());
+      return Response.json({ ok: true, alarmAt: await this.state.storage.getAlarm() });
+    }
+
     if (pathname === "/run" && request.method === "POST") {
       try {
         const result = await this.run(Date.now());
@@ -150,6 +160,14 @@ export class NotificationScheduler {
   private async arm(now: number) {
     if (notificationsPaused(this.env)) return;
     if ((await this.state.storage.getAlarm()) === null) await this.state.storage.setAlarm(now);
+  }
+
+  // Brings the alarm forward, never back: an alarm due sooner than this still fires.
+  private async reschedule(now: number) {
+    if (notificationsPaused(this.env)) return;
+    const soon = now + RESCHEDULE_DELAY_MS;
+    const current = await this.state.storage.getAlarm();
+    if (current === null || current > soon) await this.state.storage.setAlarm(soon);
   }
 
   private async run(now: number): Promise<ProcessorResult> {
@@ -215,13 +233,13 @@ export default {
       return Response.json({ ok: true, service: "studio-notification-scheduler" });
     }
 
-    if (url.pathname === "/run" && request.method === "POST") {
+    if ((url.pathname === "/run" || url.pathname === "/reschedule") && request.method === "POST") {
       if (!(await isAuthorized(request, env))) {
         return Response.json({ error: "Not authorized." }, { status: 401 });
       }
       const stub = schedulerStub(env);
       if (!stub) return Response.json({ ok: false, error: "The SCHEDULER binding is missing." }, { status: 503 });
-      return stub.fetch(new Request(`${OBJECT_ORIGIN}/run`, { method: "POST" }));
+      return stub.fetch(new Request(`${OBJECT_ORIGIN}${url.pathname}`, { method: "POST" }));
     }
 
     return new Response("Not found.", { status: 404 });
