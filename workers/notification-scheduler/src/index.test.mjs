@@ -11,10 +11,13 @@ const baseEnv = { APP_URL: "https://studio.example", CRON_SECRET: SECRET, NOTIFI
 // runs the real NotificationScheduler class.
 function fakeScheduler(env) {
   let alarm = null;
+  const stored = new Map();
   const state = {
     storage: {
       async getAlarm() { return alarm; },
       async setAlarm(time) { alarm = time; },
+      async get(key) { return stored.get(key); },
+      async put(key, value) { stored.set(key, value); },
     },
   };
   const object = new NotificationScheduler(state, env);
@@ -133,6 +136,79 @@ test("an answer without a usable time waits 20 minutes", async (context) => {
   before = Date.now();
   await object.alarm();
   assert.ok(alarm() >= before + 20 * MINUTE && alarm() <= Date.now() + 20 * MINUTE);
+});
+
+test("repeated failures back off 10, 20, 40 minutes and on, capped at six hours", async (context) => {
+  quiet(context);
+  const failing = stubFetch(context, () => new Response("{}", { status: 503 }));
+  const { object, alarm } = setup();
+  const waits = [];
+  for (let run = 0; run < 8; run += 1) {
+    const before = Date.now();
+    await object.alarm();
+    waits.push(Math.round((alarm() - before) / MINUTE));
+  }
+  assert.deepEqual(waits, [10, 20, 40, 80, 160, 320, 360, 360]);
+  assert.equal(failing.calls.length, 8);
+});
+
+test("a success clears the back-off", async (context) => {
+  quiet(context);
+  const { object, alarm } = setup();
+  stubFetch(context, () => new Response("{}", { status: 503 }));
+  await object.alarm();
+  await object.alarm();
+
+  stubFetch(context, () => answer(new Date(Date.now() + 30 * MINUTE).toISOString()));
+  await object.alarm();
+
+  stubFetch(context, () => new Response("{}", { status: 503 }));
+  const before = Date.now();
+  await object.alarm();
+  assert.ok(alarm() >= before + 10 * MINUTE && alarm() <= Date.now() + 10 * MINUTE);
+});
+
+const failedDelivery = (nextMinutes) => new Response(JSON.stringify({
+  failed: 1,
+  nextRunAt: new Date(Date.now() + nextMinutes * MINUTE).toISOString(),
+  retryAt: new Date(Date.now() + 5 * MINUTE).toISOString(),
+}), { status: 200 });
+
+test("a device that always fails is retried three times, then left until the next real time", async (context) => {
+  quiet(context);
+  stubFetch(context, () => failedDelivery(300));
+  const { object, alarm } = setup();
+  const waits = [];
+  for (let run = 0; run < 6; run += 1) {
+    const before = Date.now();
+    await object.alarm();
+    waits.push(Math.round((alarm() - before) / MINUTE));
+  }
+  assert.deepEqual(waits, [5, 5, 5, 300, 300, 300]);
+});
+
+test("a clean run allows retries again", async (context) => {
+  quiet(context);
+  const { object, alarm } = setup();
+  stubFetch(context, () => failedDelivery(300));
+  for (let run = 0; run < 4; run += 1) await object.alarm();
+
+  stubFetch(context, () => answer(new Date(Date.now() + 300 * MINUTE).toISOString()));
+  await object.alarm();
+
+  stubFetch(context, () => failedDelivery(300));
+  const before = Date.now();
+  await object.alarm();
+  assert.equal(Math.round((alarm() - before) / MINUTE), 5);
+});
+
+test("a retry never delays a real notification that is due sooner", async (context) => {
+  quiet(context);
+  stubFetch(context, () => failedDelivery(2));
+  const { object, alarm } = setup();
+  const before = Date.now();
+  await object.alarm();
+  assert.equal(Math.round((alarm() - before) / MINUTE), 2);
 });
 
 test("a failed run sets the next alarm ten minutes out so the chain does not break", async (context) => {

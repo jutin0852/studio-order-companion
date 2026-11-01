@@ -97,11 +97,6 @@ describe("nextRunAt", () => {
     expect(next.toISOString()).toBe("2026-11-02T07:20:00.000Z");
   });
 
-  it("retries a failed delivery within five minutes", () => {
-    const now = at("2026-11-02T06:00:00Z");
-    expect(nextRunAt([row()], now, { retrySoon: true }).getTime() - now.getTime()).toBe(5 * MINUTE);
-  });
-
   it("waits for a reminder nearly two days away rather than waking in between", () => {
     const now = at("2026-11-02T00:30:00Z"); // 01:30 in Lagos, nothing due today
     const next = nextRunAt([row()], now, { hasReminderOn: (_row, date) => date === "2026-11-03" });

@@ -5,15 +5,26 @@ const DEFAULT_TIME_ZONE = "Africa/Lagos";
 
 type ZonedParts = { year: number; month: number; day: number; hour: number; minute: number };
 
+// Building a formatter is slow and these run for every order, so keep one per zone.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatterFor(timeZone: string) {
+  const cached = formatters.get(timeZone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-GB", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  formatters.set(timeZone, formatter);
+  return formatter;
+}
+
 function zonedParts(at: Date, timeZone: string): ZonedParts {
-  const parts = new Intl.DateTimeFormat("en-GB", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at);
+  const parts = formatterFor(timeZone).formatToParts(at);
   const values = Object.fromEntries(parts.map((part) => [part.type, Number(part.value)]));
   return { year: values.year, month: values.month, day: values.day, hour: values.hour, minute: values.minute };
 }
 
 export function validTimeZoneOrDefault(timeZone: string) {
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
+    formatterFor(timeZone);
     return timeZone;
   } catch {
     return DEFAULT_TIME_ZONE;

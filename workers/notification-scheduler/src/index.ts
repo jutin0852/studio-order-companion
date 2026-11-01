@@ -9,6 +9,8 @@
 interface DurableObjectStorage {
   getAlarm(): Promise<number | null>;
   setAlarm(scheduledTime: number): Promise<void>;
+  get<Value>(key: string): Promise<Value | undefined>;
+  put<Value>(key: string, value: Value): Promise<void>;
 }
 
 interface DurableObjectState {
@@ -60,8 +62,15 @@ const MINUTE = 60_000;
 const OBJECT_NAME = "main";
 const OBJECT_ORIGIN = "https://scheduler.internal";
 // After a failed run (for example the database is down or over quota) wait this
-// long before calling again.
+// long, doubling each time up to the cap. Waking the database every few minutes
+// forever is exactly what used up its quota, so a lasting failure must slow down.
 const FAILURE_BACKOFF_MS = 10 * MINUTE;
+const MAX_FAILURE_BACKOFF_MS = 360 * MINUTE;
+// A device that always fails is retried this many times in a row, then only at
+// the next real notification time.
+const MAX_DELIVERY_RETRIES = 3;
+const FAILURE_STREAK_KEY = "failure-streak";
+const DELIVERY_RETRIES_KEY = "delivery-retries";
 // Never schedule sooner than a minute, or later than the two days the app can look
 // ahead plus an hour, whatever the app says.
 const MIN_WAIT_MS = MINUTE;
@@ -94,18 +103,23 @@ async function processNotifications(env: Env): Promise<ProcessorResult> {
   return { status: response.status, body };
 }
 
-// The app says when something can next be due. Keep that inside a sane range so a
-// bad or stale answer can neither hammer the database nor go quiet for a day.
-function nextRunFromBody(body: string, now: number) {
-  let requested = Number.NaN;
-  try {
-    const parsed = JSON.parse(body) as { nextRunAt?: unknown };
-    if (typeof parsed.nextRunAt === "string") requested = Date.parse(parsed.nextRunAt);
-  } catch {
-    // Not JSON: use the default wait below.
-  }
+// The app says when something is next due. Keep that inside a sane range so a bad
+// or stale answer can neither hammer the database nor go quiet for days.
+function clampRunTime(requested: number, now: number) {
   const target = Number.isFinite(requested) ? requested : now + DEFAULT_WAIT_MS;
   return Math.min(Math.max(target, now + MIN_WAIT_MS), now + MAX_WAIT_MS);
+}
+
+function parseAnswer(body: string) {
+  try {
+    const parsed = JSON.parse(body) as { nextRunAt?: unknown; retryAt?: unknown };
+    return {
+      nextRunAt: typeof parsed.nextRunAt === "string" ? Date.parse(parsed.nextRunAt) : Number.NaN,
+      retryAt: typeof parsed.retryAt === "string" ? Date.parse(parsed.retryAt) : Number.NaN,
+    };
+  } catch {
+    return { nextRunAt: Number.NaN, retryAt: Number.NaN };
+  }
 }
 
 export class NotificationScheduler {
@@ -174,12 +188,21 @@ export class NotificationScheduler {
     // Paused: do not call the app at all and do not set another alarm, so nothing
     // reaches the database. The watchdog starts the alarm again after a resume.
     if (notificationsPaused(this.env)) return { status: 200, body: '{"paused":true}' };
+    const { storage } = this.state;
     try {
       const result = await processNotifications(this.env);
-      await this.state.storage.setAlarm(nextRunFromBody(result.body, now));
+      await storage.put(FAILURE_STREAK_KEY, 0);
+      const answer = parseAnswer(result.body);
+      const retries = (await storage.get<number>(DELIVERY_RETRIES_KEY)) ?? 0;
+      const failedDelivery = Number.isFinite(answer.retryAt);
+      const retry = failedDelivery && retries < MAX_DELIVERY_RETRIES;
+      await storage.put(DELIVERY_RETRIES_KEY, !failedDelivery ? 0 : retry ? retries + 1 : retries);
+      await storage.setAlarm(clampRunTime(retry ? Math.min(answer.retryAt, answer.nextRunAt) : answer.nextRunAt, now));
       return result;
     } catch (error: unknown) {
-      await this.state.storage.setAlarm(now + FAILURE_BACKOFF_MS);
+      const streak = (await storage.get<number>(FAILURE_STREAK_KEY)) ?? 0;
+      await storage.put(FAILURE_STREAK_KEY, streak + 1);
+      await storage.setAlarm(now + Math.min(FAILURE_BACKOFF_MS * 2 ** streak, MAX_FAILURE_BACKOFF_MS));
       throw error;
     }
   }

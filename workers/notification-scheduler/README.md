@@ -27,7 +27,12 @@ So there is no per-minute schedule. A single Durable Object holds one alarm:
 6. The time is kept between 1 minute and 49 hours ahead, whatever the app says,
    so a bad answer cannot cause a storm or days of silence.
 7. After a failed run (for example the database is down or over quota) the next
-   alarm is 10 minutes away. A new alarm is always set, so the chain never breaks.
+   alarm is 10 minutes away, doubling each time up to 6 hours. A new alarm is always
+   set, so the chain never breaks, and a lasting failure cannot keep waking the
+   database. A success clears the back-off.
+8. A notification that could not be delivered is retried after 5 minutes, at most 3
+   times in a row. After that it waits for the next real notification time, so one
+   broken device cannot keep the database awake.
 
 If a `/reschedule` call is lost, that edit takes effect at the next alarm.
 

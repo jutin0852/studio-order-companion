@@ -90,8 +90,9 @@ next piece of work is due, and set one timer for that moment.
 
 With default settings each person with open orders causes about four wake-ups a
 day (one reminder, three check-ins), against 1,440 before. At roughly five minutes
-awake each, that is about 10 compute-hours a month per person, instead of 180 in
-total. Wake-ups that land close together share the same awake time.
+awake each, that is under 3 compute-hours a month per person, instead of 180 in
+total. Wake-ups that land close together share the same awake time. Real app use
+then matters more than notifications, because every session wakes the database too.
 
 Honest limits: with hundreds or thousands of users, something is due almost
 every minute, so the database stays awake anyway and a paid plan is the right

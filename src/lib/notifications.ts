@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { nextRunAt, SAFETY_CHECK_MINUTES } from "@/lib/next-run";
+import { deliveryRetryAt, nextRunAt, SAFETY_CHECK_MINUTES } from "@/lib/next-run";
 import { notificationsPaused } from "@/lib/notifications-pause";
 import { sendPushToUser } from "@/lib/push";
 import {
@@ -274,11 +274,10 @@ export async function processDueNotifications(now = new Date()) {
     failed: totalFailed,
     skipped: skipped + random.skipped,
     // Tells the scheduler when to call again, so the database is only woken when
-    // something can be due. A delivery failure is retried soon.
-    nextRunAt: nextRunAt(result.rows, now, {
-      retrySoon: totalFailed > 0,
-      hasReminderOn: (order, date) => reminderForDay(order, date) !== null,
-    }).toISOString(),
+    // something is due. retryAt is separate so the scheduler can cap retries: a
+    // device that always fails must not keep the database awake.
+    nextRunAt: nextRunAt(result.rows, now, { hasReminderOn: (order, date) => reminderForDay(order, date) !== null }).toISOString(),
+    ...(totalFailed > 0 ? { retryAt: deliveryRetryAt(now).toISOString() } : {}),
   };
 }
 

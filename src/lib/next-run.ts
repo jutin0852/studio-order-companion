@@ -14,7 +14,7 @@ import { localDateKey, localMinutes, nextDateKey, validTimeZoneOrDefault, zonedT
  * the scheduler straight away (see notification-scheduler.ts).
  */
 export const SAFETY_CHECK_MINUTES = 24 * 60;
-/** How soon to retry when a notification could not be delivered. */
+/** How soon to retry when a notification could not be delivered. The scheduler caps how many times. */
 export const DELIVERY_RETRY_MINUTES = 5;
 /** The scheduler is never asked to call back sooner than this. */
 const MIN_WAIT_MINUTES = 1;
@@ -75,10 +75,10 @@ function nextRandomAlert(row: NextRunRow, timeZone: string, now: Date) {
 export function nextRunAt<Row extends NextRunRow>(
   rows: Row[],
   now: Date,
-  options: { retrySoon?: boolean; hasReminderOn?: (row: Row, date: string) => boolean } = {},
+  options: { hasReminderOn?: (row: Row, date: string) => boolean } = {},
 ) {
   const hasReminderOn = options.hasReminderOn ?? (() => true);
-  let next = options.retrySoon ? new Date(now.getTime() + DELIVERY_RETRY_MINUTES * MINUTE) : null;
+  let next: Date | null = null;
 
   const usersSeen = new Set<string>();
   for (const row of rows) {
@@ -93,4 +93,9 @@ export function nextRunAt<Row extends NextRunRow>(
   const chosen = next ?? new Date(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE);
   const soonest = new Date(now.getTime() + MIN_WAIT_MINUTES * MINUTE);
   return chosen < soonest ? soonest : chosen;
+}
+
+/** When to try again after a failed delivery, as a separate time so retries can be capped. */
+export function deliveryRetryAt(now: Date) {
+  return new Date(now.getTime() + DELIVERY_RETRY_MINUTES * MINUTE);
 }

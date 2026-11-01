@@ -32,15 +32,15 @@ records, user settings and migrations are left exactly as they are.
 
 ## Resuming (only after the database is confirmed reachable)
 
-1. Confirm the database works: run `npm run db:verify` against production, or sign in to the app and see that `/` loads instead of the recovery page.
-2. In Vercel, set `STUDIO_NOTIFICATIONS_PAUSED=false` for Production and redeploy (environment changes apply to new deployments).
-3. In `workers/notification-scheduler/wrangler.jsonc` set `NOTIFICATIONS_PAUSED` to `"false"`, then run `npx wrangler deploy` from that folder. There is nothing else to create: the first deploy sets up the Durable Object that holds the alarm.
-4. Copy the `workers.dev` address the deploy prints into `NOTIFICATIONS_SCHEDULER_URL` in Vercel for Production, and redeploy. This lets the app tell the Worker when times change.
-5. Within 30 minutes the watchdog starts the alarm. From then on the app is only called when something is due.
-6. Optional: `POST /api/notifications/process` with the cron secret; the response should no longer contain `"paused": true` and should include a `nextRunAt` time.
+Keep this order. The old worker calls the app every minute, so the app must not be
+switched on while it is still live.
 
-Do the worker deploy before relying on notifications. The old worker calls the
-app every minute, which is what used up the free compute quota. See
-`workers/notification-scheduler/README.md`.
+1. Confirm the database works: run `npm run db:verify` against production, or sign in to the app and see that `/` loads instead of the recovery page.
+2. Run `npx wrangler deploy` from `workers/notification-scheduler` with `NOTIFICATIONS_PAUSED` still `"true"`. This replaces the old worker and sets up the Durable Object that holds the alarm. Nothing else needs creating. Note the `workers.dev` address it prints.
+3. In Vercel, for Production, set `STUDIO_NOTIFICATIONS_PAUSED=false` and `NOTIFICATIONS_SCHEDULER_URL` to that address, then redeploy (environment changes apply to new deployments).
+4. Set `NOTIFICATIONS_PAUSED` to `"false"` in `workers/notification-scheduler/wrangler.jsonc` and run `npx wrangler deploy` again.
+5. Within 30 minutes the watchdog starts the alarm. From then on the app is only called when something is due.
+
+See `workers/notification-scheduler/README.md`.
 
 To pause again, set the variable back to `true` (or remove it) and redeploy.
