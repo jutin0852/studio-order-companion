@@ -1,6 +1,25 @@
-interface KvStore {
-  get(key: string): Promise<string | null>;
-  put(key: string, value: string): Promise<void>;
+// Calls Studio's notification processor at the time the app says is next, and
+// not otherwise. A Durable Object holds one alarm; when it fires, the object
+// calls the app, reads the next time from the answer and sets the alarm for it.
+// There is no per-minute tick. The cron trigger is only a slow watchdog that
+// starts the alarm if it was never set (first deploy, or after a pause).
+
+interface DurableObjectStorage {
+  getAlarm(): Promise<number | null>;
+  setAlarm(scheduledTime: number): Promise<void>;
+}
+
+interface DurableObjectState {
+  storage: DurableObjectStorage;
+}
+
+interface DurableObjectStub {
+  fetch(request: Request): Promise<Response>;
+}
+
+interface DurableObjectNamespace {
+  idFromName(name: string): unknown;
+  get(id: unknown): DurableObjectStub;
 }
 
 interface Env {
@@ -8,8 +27,8 @@ interface Env {
   CRON_SECRET: string;
   // Notifications stay paused unless this is explicitly "false".
   NOTIFICATIONS_PAUSED?: string;
-  // Remembers when the app next needs to be called, so most ticks do nothing.
-  SCHEDULE?: KvStore;
+  // Holds the alarm that says when to call the app next.
+  SCHEDULER?: DurableObjectNamespace;
 }
 
 interface SchedulerController {
@@ -35,30 +54,23 @@ type ProcessorResult = {
   body: string;
 };
 
-type RunOutcome = ProcessorResult & { skipped?: boolean };
-
 const MINUTE = 60_000;
-const NEXT_RUN_KEY = "next-run-at";
+const OBJECT_NAME = "main";
+const OBJECT_ORIGIN = "https://scheduler.internal";
 // After a failed run (for example the database is down or over quota) wait this
-// long instead of calling again on the next tick.
+// long before calling again.
 const FAILURE_BACKOFF_MS = 10 * MINUTE;
-// Never sleep less than a minute, or longer than two hours, whatever the app says.
+// Never schedule sooner than a minute, or later than two hours, whatever the app says.
 const MIN_WAIT_MS = MINUTE;
 const MAX_WAIT_MS = 120 * MINUTE;
 // Used when the app does not say when to call next.
 const DEFAULT_WAIT_MS = 20 * MINUTE;
-// Without the KV binding there is nowhere to remember the next time, so fall back
-// to a fixed grid rather than calling the app on every tick.
-const FALLBACK_GRID_MINUTES = 20;
 
 function notificationsPaused(env: Env) {
   return env.NOTIFICATIONS_PAUSED?.trim().toLowerCase() !== "false";
 }
 
 async function processNotifications(env: Env): Promise<ProcessorResult> {
-  // Paused: do not call the app at all, so nothing reaches the database.
-  if (notificationsPaused(env)) return { status: 200, body: '{"paused":true}' };
-
   const processorUrl = new URL("/api/notifications/process", env.APP_URL);
   const response = await fetch(processorUrl, {
     method: "POST",
@@ -78,7 +90,7 @@ async function processNotifications(env: Env): Promise<ProcessorResult> {
 }
 
 // The app says when something can next be due. Keep that inside a sane range so a
-// bad or stale answer can neither hammer the database nor sleep for a day.
+// bad or stale answer can neither hammer the database nor go quiet for a day.
 function nextRunFromBody(body: string, now: number) {
   let requested = Number.NaN;
   try {
@@ -91,45 +103,73 @@ function nextRunFromBody(body: string, now: number) {
   return Math.min(Math.max(target, now + MIN_WAIT_MS), now + MAX_WAIT_MS);
 }
 
-async function isDue(env: Env, scheduledTime: number) {
-  if (!env.SCHEDULE) {
-    console.error("Studio scheduler has no SCHEDULE KV binding; running on a fixed grid instead.");
-    return Math.floor(scheduledTime / MINUTE) % FALLBACK_GRID_MINUTES === 0;
+export class NotificationScheduler {
+  state: DurableObjectState;
+  env: Env;
+
+  constructor(state: DurableObjectState, env: Env) {
+    this.state = state;
+    this.env = env;
   }
-  const stored = Number(await env.SCHEDULE.get(NEXT_RUN_KEY));
-  // Nothing stored yet (first run) or an unreadable value: call the app.
-  if (!Number.isFinite(stored) || stored <= 0) return true;
-  return scheduledTime >= stored;
+
+  async fetch(request: Request) {
+    const { pathname } = new URL(request.url);
+
+    if (pathname === "/arm" && request.method === "POST") {
+      await this.arm(Date.now());
+      return Response.json({ ok: true, alarmAt: await this.state.storage.getAlarm() });
+    }
+
+    if (pathname === "/run" && request.method === "POST") {
+      try {
+        const result = await this.run(Date.now());
+        return Response.json({ ok: true, ...result });
+      } catch (error: unknown) {
+        return Response.json(
+          { ok: false, error: error instanceof Error ? error.message : String(error) },
+          { status: 502 },
+        );
+      }
+    }
+
+    return new Response("Not found.", { status: 404 });
+  }
+
+  // Runs at the time set by the previous run. Always sets the next alarm, even
+  // after a failure, so the chain of alarms never breaks.
+  async alarm() {
+    try {
+      const result = await this.run(Date.now());
+      console.log("Studio notifications processed", { status: result.status, body: result.body });
+    } catch (error: unknown) {
+      console.error("Studio notification processing failed", { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  // Starts the alarm only if none is set. Paused: nothing is started.
+  private async arm(now: number) {
+    if (notificationsPaused(this.env)) return;
+    if ((await this.state.storage.getAlarm()) === null) await this.state.storage.setAlarm(now);
+  }
+
+  private async run(now: number): Promise<ProcessorResult> {
+    // Paused: do not call the app at all and do not set another alarm, so nothing
+    // reaches the database. The watchdog starts the alarm again after a resume.
+    if (notificationsPaused(this.env)) return { status: 200, body: '{"paused":true}' };
+    try {
+      const result = await processNotifications(this.env);
+      await this.state.storage.setAlarm(nextRunFromBody(result.body, now));
+      return result;
+    } catch (error: unknown) {
+      await this.state.storage.setAlarm(now + FAILURE_BACKOFF_MS);
+      throw error;
+    }
+  }
 }
 
-async function remember(env: Env, nextRunAt: number) {
-  if (!env.SCHEDULE) return;
-  try {
-    await env.SCHEDULE.put(NEXT_RUN_KEY, String(nextRunAt));
-  } catch (error: unknown) {
-    // A missed write only means the next tick calls the app again.
-    console.error("Studio scheduler could not save the next run time", error instanceof Error ? error.message : String(error));
-  }
-}
-
-// Calls the app, then remembers when to call next. A failure backs off instead of
-// retrying on the very next tick.
-async function runAndSchedule(env: Env, now: number): Promise<ProcessorResult> {
-  if (notificationsPaused(env)) return processNotifications(env);
-  try {
-    const result = await processNotifications(env);
-    await remember(env, nextRunFromBody(result.body, now));
-    return result;
-  } catch (error: unknown) {
-    await remember(env, now + FAILURE_BACKOFF_MS);
-    throw error;
-  }
-}
-
-async function runIfDue(env: Env, scheduledTime: number): Promise<RunOutcome> {
-  if (notificationsPaused(env)) return processNotifications(env);
-  if (!(await isDue(env, scheduledTime))) return { status: 204, body: "", skipped: true };
-  return runAndSchedule(env, scheduledTime);
+function schedulerStub(env: Env) {
+  if (!env.SCHEDULER) return null;
+  return env.SCHEDULER.get(env.SCHEDULER.idFromName(OBJECT_NAME));
 }
 
 async function digest(value: string) {
@@ -149,25 +189,23 @@ async function isAuthorized(request: Request, env: Env) {
 }
 
 export default {
+  // A slow watchdog, not the schedule: it only makes sure an alarm exists.
   async scheduled(controller: SchedulerController, env: Env, context: SchedulerExecutionContext) {
-    context.waitUntil(
-      runIfDue(env, controller.scheduledTime).then((result) => {
-        // Most ticks are skipped; only log the ones that did something.
-        if (result.skipped) return;
-        console.log("Studio notifications processed", {
-          cron: controller.cron,
-          scheduledTime: controller.scheduledTime,
-          status: result.status,
-          body: result.body,
-        });
-      }).catch((error: unknown) => {
-        console.error("Studio notification processing failed", {
-          cron: controller.cron,
-          scheduledTime: controller.scheduledTime,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }),
-    );
+    context.waitUntil((async () => {
+      if (notificationsPaused(env)) return;
+      const stub = schedulerStub(env);
+      if (!stub) {
+        console.error("Studio scheduler has no SCHEDULER Durable Object binding; nothing will be scheduled.");
+        return;
+      }
+      await stub.fetch(new Request(`${OBJECT_ORIGIN}/arm`, { method: "POST" }));
+    })().catch((error: unknown) => {
+      console.error("Studio scheduler could not check its alarm", {
+        cron: controller.cron,
+        scheduledTime: controller.scheduledTime,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }));
   },
 
   async fetch(request: Request, env: Env) {
@@ -181,16 +219,9 @@ export default {
       if (!(await isAuthorized(request, env))) {
         return Response.json({ error: "Not authorized." }, { status: 401 });
       }
-
-      try {
-        const result = await runAndSchedule(env, Date.now());
-        return Response.json({ ok: true, ...result });
-      } catch (error: unknown) {
-        return Response.json(
-          { ok: false, error: error instanceof Error ? error.message : String(error) },
-          { status: 502 },
-        );
-      }
+      const stub = schedulerStub(env);
+      if (!stub) return Response.json({ ok: false, error: "The SCHEDULER binding is missing." }, { status: 503 });
+      return stub.fetch(new Request(`${OBJECT_ORIGIN}/run`, { method: "POST" }));
     }
 
     return new Response("Not found.", { status: 404 });

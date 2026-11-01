@@ -74,19 +74,19 @@ allowed, and nothing warned anyone.
 ## The design that avoids this
 
 Do not poll the database to find out whether there is work. Work out when the
-next piece of work is due, remember that time somewhere cheap, and only wake the
-database then.
+next piece of work is due, and set one timer for that moment.
 
 1. After each run, the app computes the next moment anything could be due: the
    earliest of each user's next reminder time, their next random check-in, and a
    safety check an hour away.
-2. The scheduler stores that time in a cheap key-value store (Cloudflare KV).
-3. The scheduler still ticks every minute, which costs nothing, but each tick
-   only reads the stored time and calls the app when it has passed.
-4. If a run fails, the scheduler waits about 10 minutes before trying again
-   instead of retrying every minute.
+2. The scheduler sets a single timer for that time (a Cloudflare Durable Object
+   alarm) and stops. Nothing runs in between: no per-minute tick at all.
+3. When the timer fires, the scheduler calls the app, and the cycle repeats.
+4. If a run fails, the next timer is set about 10 minutes out, so it neither
+   hammers a broken database nor stops for good.
 5. Changes made during the day (a new reminder time, a new order) are picked up
    by the hourly safety check.
+6. A slow watchdog only checks that a timer exists, in case the chain ever stops.
 
 For a handful of users this cuts database wake-ups from 1,440 a day to about 25,
 roughly 18 compute-hours a month instead of 180.

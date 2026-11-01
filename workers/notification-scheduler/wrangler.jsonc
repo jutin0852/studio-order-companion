@@ -7,10 +7,11 @@
   "vars": {
     "NOTIFICATIONS_PAUSED": "true"
   },
-  "kv_namespaces": [
-    { "binding": "SCHEDULE", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }
-  ],
+  "durable_objects": {
+    "bindings": [{ "name": "SCHEDULER", "class_name": "NotificationScheduler" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["NotificationScheduler"] }],
   "triggers": {
-    "crons": ["* * * * *"]
+    "crons": ["*/30 * * * *"]
   }
 }
