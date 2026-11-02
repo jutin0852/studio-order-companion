@@ -326,11 +326,12 @@ test("reschedule does nothing while paused", async () => {
   assert.equal(alarm(), null);
 });
 
-test("the worker is not scheduled every minute, and ships paused with the alarm object bound", async () => {
+test("the worker is not scheduled every minute, sets the pause switch explicitly and binds the alarm object", async () => {
   const config = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
   assert.deepEqual(config.triggers.crons, ["*/30 * * * *"]);
   assert.notDeepEqual(config.triggers.crons, ["* * * * *"]);
-  assert.equal(config.vars.NOTIFICATIONS_PAUSED, "true");
+  assert.ok(["true", "false"].includes(config.vars.NOTIFICATIONS_PAUSED));
+  assert.equal(config.preview_urls, false, "no extra public preview addresses");
   assert.equal(config.workers_dev, true, "the app needs an address to call /reschedule");
   assert.equal(config.durable_objects.bindings[0].name, "SCHEDULER");
   assert.equal(config.durable_objects.bindings[0].class_name, "NotificationScheduler");

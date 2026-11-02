@@ -4,8 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-09",
   "workers_dev": true,
+  "preview_urls": false,
   "vars": {
-    "NOTIFICATIONS_PAUSED": "true"
+    "NOTIFICATIONS_PAUSED": "false"
   },
   "durable_objects": {
     "bindings": [{ "name": "SCHEDULER", "class_name": "NotificationScheduler" }]
