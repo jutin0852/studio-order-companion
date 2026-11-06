@@ -9,6 +9,9 @@ export const MIN_AWAKE_MINUTES = 180;
 // A slot is only honoured shortly after it passes, so a late or missed cron run
 // never turns into a burst of "catch-up" alerts.
 export const SLOT_GRACE_MINUTES = 45;
+// A check-in only mentions orders that are late, due today or due within this many
+// days. An order due further away is not due yet, so it never earns a notification.
+export const NUDGE_WITHIN_DAYS = 3;
 
 export function minutesFromTime(value: string) {
   const match = /^(\d{1,2}):(\d{2})/.exec(value);
@@ -72,7 +75,7 @@ function dayDifference(from: string, to: string) {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 }
 
-/** Orders worth a nudge today, most pressing first. */
+/** Orders worth a nudge today, most pressing first. Only orders late or due within NUDGE_WITHIN_DAYS. */
 export function rankOrdersForNudge(orders: NudgeOrder[], today: string) {
   const ranked: Array<{ order: NudgeOrder; rank: number; daysUntilDue: number }> = [];
   for (const order of orders) {
@@ -81,12 +84,12 @@ export function rankOrdersForNudge(orders: NudgeOrder[], today: string) {
     const snoozed = order.snoozed_until !== null && order.snoozed_until > today;
     // A snooze quiets everything except orders that are due or late.
     if (snoozed && daysUntilDue > 0) continue;
+    if (daysUntilDue > NUDGE_WITHIN_DAYS) continue;
     let rank: number;
     if (daysUntilDue < 0) rank = 0;
     else if (daysUntilDue === 0) rank = 1;
     else if (order.status === "ready") rank = 2;
-    else if (daysUntilDue <= 3) rank = 3;
-    else rank = 4;
+    else rank = 3;
     ranked.push({ order, rank, daysUntilDue });
   }
   return ranked.sort((a, b) => a.rank - b.rank || a.daysUntilDue - b.daysUntilDue || a.order.order_id.localeCompare(b.order.order_id));
@@ -116,12 +119,9 @@ export function buildNudge(orders: NudgeOrder[], today: string, slotIndex: numbe
   } else if (rank === 2) {
     title = "Ready to send";
     body = `${item} is ready. Let the customer know.${more}`;
-  } else if (rank === 3) {
+  } else {
     title = `Due in ${plural(daysUntilDue, "day")}`;
     body = `${item} is coming up. Is it on track?${more}`;
-  } else {
-    title = "Quick check-in";
-    body = `${item} is due in ${plural(daysUntilDue, "day")}. Anything you can move along today?${more}`;
   }
   return { title, body, orderId: order.order_id };
 }

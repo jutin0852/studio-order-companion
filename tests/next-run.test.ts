@@ -113,6 +113,30 @@ describe("nextRunAt", () => {
     expect(nextRunAt([row({ timezone: "Mars/Olympus" })], now).toISOString()).toBe("2026-11-02T08:00:00.000Z");
   });
 
+  describe("random check-ins only count when an order could be mentioned", () => {
+    const now = at("2026-11-02T06:00:00Z"); // 07:00 in Lagos, before the awake window
+    const randomRow = row({ random_alerts_enabled: true, reminder_time: "23:00" });
+
+    it("does not wake for check-ins when no order is due soon", () => {
+      const next = nextRunAt([randomRow], now, { hasReminderOn: () => false, hasRandomOn: () => false });
+      expect(next.toISOString()).toBe(backstopFrom(now));
+    });
+
+    it("skips today and uses tomorrow when only tomorrow has a qualifying order", () => {
+      const slots = randomAlertSlots({ userId: "user-1", date: "2026-11-03", count: 3, startMinutes: 8 * 60, endMinutes: 21 * 60 });
+      const first = zonedTimeToDate("2026-11-03", slots[0], "Africa/Lagos");
+      const next = nextRunAt([randomRow], now, { hasReminderOn: () => false, hasRandomOn: (_user, date) => date === "2026-11-03" });
+      expect(next.toISOString()).toBe(first.toISOString());
+    });
+
+    it("wakes for today's check-in when an order qualifies today", () => {
+      const slots = randomAlertSlots({ userId: "user-1", date: "2026-11-02", count: 3, startMinutes: 8 * 60, endMinutes: 21 * 60 });
+      const first = zonedTimeToDate("2026-11-02", slots[0], "Africa/Lagos");
+      const next = nextRunAt([randomRow], now, { hasReminderOn: () => false, hasRandomOn: (_user, date) => date === "2026-11-02" });
+      expect(next.toISOString()).toBe(first.toISOString());
+    });
+  });
+
   describe("only days with a real reminder count", () => {
     const now = at("2026-11-02T06:00:00Z");
 

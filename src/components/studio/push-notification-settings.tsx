@@ -132,7 +132,7 @@ export function PushNotificationSettings({ dueSoonDaysBefore, paused = false }: 
   const reminderDayDescription = dueSoonDaysBefore.length === 0
     ? "No pre-due reminders are scheduled."
     : `Reminders ${[...dueSoonDaysBefore].sort((a, b) => a - b).map((day) => `${day} day${day === 1 ? "" : "s"}`).join(", ").replace(/, ([^,]*)$/, " and $1")} before the due date.`;
-  const randomAlertsDescription = `About ${preferences.randomAlertsPerDay} a day at random times while you're awake, flagging orders that need you.`;
+  const randomAlertsDescription = `About ${preferences.randomAlertsPerDay} a day at random times while you're awake, only about orders that are late or due within 3 days.`;
   const options: { key: Exclude<BooleanPreferenceKey, "pushEnabled">; label: string; description: string }[] = [
     { key: "dueTodayEnabled", label: "Due date", description: "A reminder on the day an order is due." },
     { key: "dueSoonEnabled", label: "Before it's due", description: reminderDayDescription },

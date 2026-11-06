@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildNudge, dueSlotIndex, isValidAwakeWindow, minutesFromTime, randomAlertSlots, rankOrdersForNudge, SLOT_GRACE_MINUTES } from "./random-alerts.ts";
+import { buildNudge, dueSlotIndex, isValidAwakeWindow, minutesFromTime, NUDGE_WITHIN_DAYS, randomAlertSlots, rankOrdersForNudge, SLOT_GRACE_MINUTES } from "./random-alerts.ts";
 
 const window = { startMinutes: 8 * 60, endMinutes: 21 * 60 };
 
@@ -47,9 +47,29 @@ test("time parsing and awake window validation", () => {
 const order = (id, due, status = "in_progress", snoozed = null) => ({ order_id: id, customer_name: `C${id}`, product_name: `P${id}`, due_date: due, status, snoozed_until: snoozed });
 const today = "2026-11-02";
 
-test("orders are ranked overdue, due today, ready, due soon, then later", () => {
-  const ranked = rankOrdersForNudge([order("a", "2026-11-20"), order("b", "2026-11-04"), order("c", "2026-11-02"), order("d", "2026-10-30"), order("e", "2026-11-10", "ready"), order("f", "2026-10-01", "delivered")], today);
+test("orders are ranked overdue, due today, ready, then due soon", () => {
+  const ranked = rankOrdersForNudge([order("a", "2026-11-05"), order("b", "2026-11-04"), order("c", "2026-11-02"), order("d", "2026-10-30"), order("e", "2026-11-03", "ready"), order("f", "2026-10-01", "delivered")], today);
   assert.deepEqual(ranked.map((item) => item.order.order_id), ["d", "c", "e", "b", "a"]);
+});
+
+test("only orders late or due within three days are ever mentioned", () => {
+  assert.equal(NUDGE_WITHIN_DAYS, 3);
+  const ids = (orders) => rankOrdersForNudge(orders, today).map((item) => item.order.order_id);
+  assert.deepEqual(ids([order("a", "2026-11-05")]), ["a"], "due in exactly 3 days counts");
+  assert.deepEqual(ids([order("a", "2026-11-06")]), [], "due in 4 days is not due yet");
+  assert.deepEqual(ids([order("a", "2026-11-20")]), [], "due in 18 days is not due yet");
+  assert.deepEqual(ids([order("a", "2026-11-10", "ready")]), [], "a ready order that is not due yet is left alone");
+  assert.deepEqual(ids([order("a", "2026-11-04", "ready")]), ["a"], "a ready order due soon still counts");
+  assert.deepEqual(ids([order("a", "2026-10-01")]), ["a"], "late orders always count");
+});
+
+test("an order that is not due yet never produces a notification", () => {
+  for (let slot = 0; slot < 5; slot += 1) {
+    assert.equal(buildNudge([order("a", "2026-11-20"), order("b", "2026-12-25", "ready")], today, slot), null);
+  }
+  const soon = buildNudge([order("a", "2026-11-20"), order("b", "2026-11-04")], today, 0);
+  assert.equal(soon.orderId, "b");
+  assert.doesNotMatch(soon.body, /other order/, "a far-off order is not counted as one that needs a look");
 });
 
 test("a snooze hides future orders but not due or late ones", () => {

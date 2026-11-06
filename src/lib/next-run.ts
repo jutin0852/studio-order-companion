@@ -49,7 +49,7 @@ function nextReminder<Row extends NextRunRow>(row: Row, timeZone: string, now: D
   return date ? zonedTimeToDate(date, reminderMinutes, timeZone) : null;
 }
 
-function nextRandomAlert(row: NextRunRow, timeZone: string, now: Date) {
+function nextRandomAlert(row: NextRunRow, timeZone: string, now: Date, hasRandomOn: (userId: string, date: string) => boolean) {
   const awakeFits = isValidAwakeWindow(row.awake_start, row.awake_end);
   const startMinutes = minutesFromTime(awakeFits ? row.awake_start : DEFAULT_AWAKE_START) as number;
   const endMinutes = minutesFromTime(awakeFits ? row.awake_end : DEFAULT_AWAKE_END) as number;
@@ -57,11 +57,16 @@ function nextRandomAlert(row: NextRunRow, timeZone: string, now: Date) {
   const today = localDateKey(now, timeZone);
   const nowMinutes = localMinutes(now, timeZone);
 
-  const todaysSlots = randomAlertSlots({ userId: row.user_id, date: today, count, startMinutes, endMinutes });
-  const upcoming = todaysSlots.find((slot) => slot > nowMinutes);
-  if (upcoming !== undefined) return zonedTimeToDate(today, upcoming, timeZone);
+  // A check-in only has something to say on a day this person has an order that is
+  // late or due within a few days, so other days do not count.
+  if (hasRandomOn(row.user_id, today)) {
+    const todaysSlots = randomAlertSlots({ userId: row.user_id, date: today, count, startMinutes, endMinutes });
+    const upcoming = todaysSlots.find((slot) => slot > nowMinutes);
+    if (upcoming !== undefined) return zonedTimeToDate(today, upcoming, timeZone);
+  }
 
   const tomorrow = nextDateKey(today);
+  if (!hasRandomOn(row.user_id, tomorrow)) return null;
   const [first] = randomAlertSlots({ userId: row.user_id, date: tomorrow, count, startMinutes, endMinutes });
   return zonedTimeToDate(tomorrow, first, timeZone);
 }
@@ -75,9 +80,14 @@ function nextRandomAlert(row: NextRunRow, timeZone: string, now: Date) {
 export function nextRunAt<Row extends NextRunRow>(
   rows: Row[],
   now: Date,
-  options: { hasReminderOn?: (row: Row, date: string) => boolean } = {},
+  options: {
+    hasReminderOn?: (row: Row, date: string) => boolean;
+    // Whether a person has an order a random check-in could mention on a day.
+    hasRandomOn?: (userId: string, date: string) => boolean;
+  } = {},
 ) {
   const hasReminderOn = options.hasReminderOn ?? (() => true);
+  const hasRandomOn = options.hasRandomOn ?? (() => true);
   let next: Date | null = null;
 
   const usersSeen = new Set<string>();
@@ -87,7 +97,7 @@ export function nextRunAt<Row extends NextRunRow>(
     next = earliest(next, nextReminder(row, timeZone, now, hasReminderOn));
     if (usersSeen.has(row.user_id)) continue;
     usersSeen.add(row.user_id);
-    if (row.random_alerts_enabled) next = earliest(next, nextRandomAlert(row, timeZone, now));
+    if (row.random_alerts_enabled) next = earliest(next, nextRandomAlert(row, timeZone, now, hasRandomOn));
   }
 
   const chosen = next ?? new Date(now.getTime() + SAFETY_CHECK_MINUTES * MINUTE);

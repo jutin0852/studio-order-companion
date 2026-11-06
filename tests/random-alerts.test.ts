@@ -14,6 +14,7 @@ const DATE = "2026-11-02";
 const atLocalMinute = (minute: number) => new Date(Date.UTC(2026, 10, 2) + (minute - 60) * 60_000);
 const slots = randomAlertSlots({ userId: alice.id, date: DATE, count: 3, startMinutes: 8 * 60, endMinutes: 21 * 60 });
 const sent = () => vi.mocked(sendPushToUser);
+const nudgesSent = () => sent().mock.calls.filter(([, payload]) => payload.kind === "random_nudge");
 
 let businessId: string;
 
@@ -21,7 +22,7 @@ async function addOrder(overrides: { status?: string; dueDate?: string; product?
   await db!.query(
     `INSERT INTO orders (business_id, product_name, customer_name, amount_paid, due_date, status)
      VALUES ($1, $2, 'Amaka', 45000, $3::date, $4)`,
-    [businessId, overrides.product ?? "Ankara gown", overrides.dueDate ?? "2026-11-30", overrides.status ?? "in_progress"],
+    [businessId, overrides.product ?? "Ankara gown", overrides.dueDate ?? "2026-11-03", overrides.status ?? "in_progress"],
   );
 }
 
@@ -92,6 +93,25 @@ describe("random check-ins", () => {
     await addOrder({ status: "delivered" });
     await processDueNotifications(atLocalMinute(slots[0]));
     expect(sent()).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet about an order that is not due for more than three days", async () => {
+    await addOrder({ dueDate: "2026-11-06" });
+    await addOrder({ dueDate: "2026-11-30", status: "ready" });
+    for (const slot of slots) await processDueNotifications(atLocalMinute(slot));
+    expect(sent()).not.toHaveBeenCalled();
+  });
+
+  it("mentions an order due in exactly three days, and nothing about the far-off ones", async () => {
+    await addOrder({ dueDate: "2026-11-05", product: "Lace wrapper" });
+    await addOrder({ dueDate: "2026-12-20", product: "Far away gown" });
+    await processDueNotifications(atLocalMinute(slots[0]));
+    // A normal "due in 3 days" reminder may also go out after 09:00; only the check-in is under test.
+    expect(nudgesSent()).toHaveLength(1);
+    const body = String(nudgesSent()[0][1].body);
+    expect(body).toContain("Lace wrapper");
+    expect(body).not.toContain("Far away gown");
+    expect(body).not.toContain("other order");
   });
 
   it("retries on the next run when no device received it, then stops once delivered", async () => {

@@ -11,6 +11,7 @@ import {
   isValidAwakeWindow,
   minutesFromTime,
   randomAlertSlots,
+  rankOrdersForNudge,
 } from "@/lib/random-alerts";
 import { isDueSoonDay } from "@/lib/reminder-days";
 import { localDateKey, localMinutes, validTimeZoneOrDefault } from "@/lib/schedule-time";
@@ -267,6 +268,7 @@ export async function processDueNotifications(now = new Date()) {
   }
 
   const random = await processRandomAlerts(result.rows, now);
+  const ordersOfUser = groupOrdersByUser(result.rows);
   const totalFailed = failed + random.failed;
   return {
     processed: processed + random.processed,
@@ -276,9 +278,18 @@ export async function processDueNotifications(now = new Date()) {
     // Tells the scheduler when to call again, so the database is only woken when
     // something is due. retryAt is separate so the scheduler can cap retries: a
     // device that always fails must not keep the database awake.
-    nextRunAt: nextRunAt(result.rows, now, { hasReminderOn: (order, date) => reminderForDay(order, date) !== null }).toISOString(),
+    nextRunAt: nextRunAt(result.rows, now, {
+      hasReminderOn: (order, date) => reminderForDay(order, date) !== null,
+      hasRandomOn: (userId, date) => rankOrdersForNudge(ordersOfUser.get(userId) ?? [], date).length > 0,
+    }).toISOString(),
     ...(totalFailed > 0 ? { retryAt: deliveryRetryAt(now).toISOString() } : {}),
   };
+}
+
+function groupOrdersByUser(rows: NotificationOrder[]) {
+  const grouped = new Map<string, NotificationOrder[]>();
+  for (const row of rows) grouped.set(row.user_id, [...(grouped.get(row.user_id) ?? []), row]);
+  return grouped;
 }
 
 // A few nudges a day at unpredictable times while the owner is awake. Today's
@@ -286,10 +297,7 @@ export async function processDueNotifications(now = new Date()) {
 // needs nothing stored; the reminder dedupe key stops a slot firing twice.
 async function processRandomAlerts(rows: NotificationOrder[], now: Date) {
   const totals = { processed: 0, sent: 0, failed: 0, skipped: 0 };
-  const ordersByUser = new Map<string, NotificationOrder[]>();
-  for (const row of rows) ordersByUser.set(row.user_id, [...(ordersByUser.get(row.user_id) ?? []), row]);
-
-  for (const [userId, orders] of ordersByUser) {
+  for (const [userId, orders] of groupOrdersByUser(rows)) {
     const preferences = orders[0];
     if (!preferences.push_enabled || !preferences.random_alerts_enabled) continue;
 

@@ -15,7 +15,8 @@ So there is no per-minute schedule. A single Durable Object holds one alarm:
 1. When the alarm fires, the object calls the processor.
 2. The app sends any notifications that are due and answers with `nextRunAt`: the
    earliest real reminder and the earliest random check-in. A reminder only
-   counts on a day an order actually has one.
+   counts on a day an order actually has one, and a check-in only counts on a day
+   the person has an order that is late or due within 3 days.
 3. The object sets its alarm for that time and stops. Nothing runs in between.
 4. When someone changes something that affects the times (a new order, a due
    date, a snooze, a reminder time, awake hours), the app calls `/reschedule`.
